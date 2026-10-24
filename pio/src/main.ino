@@ -1251,7 +1251,8 @@ static int buildStateJson(char* out, size_t n) {
   w += snprintf(out + w, n - w, ",\"wssid\":\"%s\",\"wst\":\"%s\",\"wcustom\":%u",
                 t.wifiSsid, t.wifiStatus, t.wifiCustom ? 1 : 0);
   w += snprintf(out + w, n - w, ",\"ogithub\":%u", (unsigned)(ENABLE_GITHUB_OTA ? 1 : 0));
-  w += snprintf(out + w, n - w, ",\"nvm\":%u,\"rstrt\":\"%s\",\"reqs\":%lu,\"cmds\":%lu,\"ota\":%u,\"wd\":%u",
+  /* флаг сторожа называется wdt: ключ wd уже занят днём недели */
+  w += snprintf(out + w, n - w, ",\"nvm\":%u,\"rstrt\":\"%s\",\"reqs\":%lu,\"cmds\":%lu,\"ota\":%u,\"wdt\":%u",
                 t.nvmLoaded ? 1 : 0, resetReasonName(resetReason),
                 (unsigned long)t.requests, (unsigned long)t.cmds, t.otaActive ? 1 : 0,
                 (unsigned)(WATCHDOG_ENABLE ? 1 : 0));

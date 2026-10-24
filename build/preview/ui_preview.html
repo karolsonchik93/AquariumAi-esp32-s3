@@ -1109,7 +1109,7 @@ function render(){
     (S.wd!==undefined?(' · '+WD[S.wd]):'');
   $('d-sen').textContent=S.nsen+' шт · вода '+(S.tok?'есть':'НЕТ')+' · воздух '+(S.aok?'есть':'НЕТ');
   $('d-nvm').textContent=S.nvm?'сохранены':'по умолчанию';
-  $('d-fw').textContent='v'+(S.fw||'?')+(S.wd?' · WDT':'');
+  $('d-fw').textContent='v'+(S.fw||'?')+(S.wdt?' · WDT':'');
   $('d-mem').textContent=Math.round((S.heap||0)/1024)+' КБ / '+((S.psram||0)/1048576).toFixed(0)+' МБ';
   $('d-req').textContent=(S.reqs||0)+' (команд '+(S.cmds||0)+')';
   $('d-rst').textContent=S.rstrt||'—';
@@ -1262,7 +1262,7 @@ window.addEventListener('visibilitychange',function(){ if(!document.hidden){ pol
     time: '14:23:05', date: '08.10.2026', wd: 4, tsrc: 'ntp',
     ip: '192.168.1.50', gw: '192.168.1.1', ssid: 'HomeWiFi', host: 'aquarium',
     ap: 0, rssi: -58, wssid: 'HomeWiFi', wst: 'ok', wcustom: 1, ogithub: 1, nvm: 1, rstrt: 'включение питания',
-    reqs: 1284, cmds: 37, ota: 0, wd: 1, al: 0, altext: '',
+    reqs: 1284, cmds: 37, ota: 0, wdt: 1, al: 0, altext: '',
     hist: 240, histmax: 5760, step: 15,
     cyc: [
       { t: '13:41', ts: 24.61, te: 25.02, d: 1140, sp: 25.0 },

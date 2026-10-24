@@ -1117,7 +1117,7 @@ function render(){
     (S.wd!==undefined?(' · '+WD[S.wd]):'');
   $('d-sen').textContent=S.nsen+' шт · вода '+(S.tok?'есть':'НЕТ')+' · воздух '+(S.aok?'есть':'НЕТ');
   $('d-nvm').textContent=S.nvm?'сохранены':'по умолчанию';
-  $('d-fw').textContent='v'+(S.fw||'?')+(S.wd?' · WDT':'');
+  $('d-fw').textContent='v'+(S.fw||'?')+(S.wdt?' · WDT':'');
   $('d-mem').textContent=Math.round((S.heap||0)/1024)+' КБ / '+((S.psram||0)/1048576).toFixed(0)+' МБ';
   $('d-req').textContent=(S.reqs||0)+' (команд '+(S.cmds||0)+')';
   $('d-rst').textContent=S.rstrt||'—';
