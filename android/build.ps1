@@ -19,6 +19,12 @@ $env:TMP  = $env:TEMP
 Remove-Item (Join-Path $out 'classes'), (Join-Path $out 'dex'), (Join-Path $out 'gen') -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path (Join-Path $out 'classes'), (Join-Path $out 'dex'), (Join-Path $out 'gen') | Out-Null
 
+Write-Host '0. guard: no forbidden views in widget layout'
+$wxml = Get-Content (Join-Path $app 'res\layout\widget.xml') -Raw
+foreach ($bad in @('<View', '<include', '<merge', '<fragment', '<WebView', '<ScrollView')) {
+    if ($wxml.Contains($bad)) { Write-Host ('ERROR: forbidden element ' + $bad + ' in widget.xml'); exit 3 }
+}
+Write-Host '   ok'
 Write-Host '1. aapt2 compile'
 & (Join-Path $bt 'aapt2.exe') compile --dir (Join-Path $app 'res') -o (Join-Path $out 'res.zip')
 
@@ -26,7 +32,7 @@ Write-Host '2. aapt2 link'
 & (Join-Path $bt 'aapt2.exe') link -o (Join-Path $out 'base.apk') -I $jar `
     --manifest (Join-Path $app 'AndroidManifest.xml') -R (Join-Path $out 'res.zip') `
     --java (Join-Path $out 'gen') --min-sdk-version 23 --target-sdk-version 34 `
-    --version-code 3 --version-name '1.0.2' --auto-add-overlay
+    --version-code 4 --version-name '1.0.3' --auto-add-overlay
 
 Write-Host '3. javac (UTF-8!)'
 $srcs = Get-ChildItem (Join-Path $app 'src') -Recurse -Filter *.java | ForEach-Object { $_.FullName }

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Только классы, разрешённые в RemoteViews: LinearLayout, TextView, ProgressBar.
+     Никаких простых View, include и merge - иначе лаунчер пишет ошибку при загрузке виджета. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/wRoot"
     android:layout_width="match_parent"
@@ -22,9 +24,7 @@
             android:ellipsize="end"
             android:text="Аквариум"
             android:textColor="#7DD3FC"
-            android:textSize="10sp"
-            android:letterSpacing="0.12"
-            android:textAllCaps="true" />
+            android:textSize="10sp" />
 
         <TextView
             android:id="@+id/wStatus"
@@ -39,8 +39,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="bottom"
-        android:layout_marginTop="6dp">
+        android:layout_marginTop="4dp">
 
         <TextView
             android:id="@+id/wTemp"
@@ -48,8 +47,7 @@
             android:layout_height="wrap_content"
             android:text="--"
             android:textColor="#E8EEF6"
-            android:textSize="34sp"
-            android:includeFontPadding="false" />
+            android:textSize="34sp" />
 
         <TextView
             android:id="@+id/wUnit"
@@ -58,8 +56,8 @@
             android:text="°C"
             android:textColor="#8B9BAD"
             android:textSize="13sp"
-            android:layout_marginStart="2dp"
-            android:layout_marginBottom="6dp" />
+            android:layout_marginStart="3dp"
+            android:layout_marginTop="12dp" />
     </LinearLayout>
 
     <TextView
@@ -81,14 +79,12 @@
 
     <ProgressBar
         android:id="@+id/wLightBar"
-        style="?android:attr/progressBarStyleHorizontal"
+        style="@android:style/Widget.ProgressBar.Horizontal"
         android:layout_width="match_parent"
         android:layout_height="6dp"
         android:layout_marginTop="8dp"
         android:max="100"
-        android:progress="0"
-        android:progressTint="#22D3EE"
-        android:progressBackgroundTint="#1B2A3C" />
+        android:progress="0" />
 
     <TextView
         android:id="@+id/wLight"
@@ -99,7 +95,8 @@
         android:textColor="#8B9BAD"
         android:textSize="11sp" />
 
-    <View
+    <TextView
+        android:id="@+id/wDivider"
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:layout_marginTop="8dp"
@@ -127,10 +124,10 @@
             android:id="@+id/wRefresh"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:paddingStart="8dp"
+            android:paddingStart="10dp"
             android:paddingEnd="2dp"
             android:text="⟳"
             android:textColor="#22D3EE"
-            android:textSize="15sp" />
+            android:textSize="16sp" />
     </LinearLayout>
 </LinearLayout>
