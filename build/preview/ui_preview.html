@@ -80,10 +80,12 @@ body.air-on .bubbles{opacity:1}
 @keyframes rise{0%{transform:translateY(0) scale(.6);opacity:0}
   12%{opacity:.85}100%{transform:translateY(-215px) scale(1.15);opacity:0}}
 .fish{position:absolute;top:46%;left:6%;width:64px;height:auto;opacity:.5;
-  animation:swim 24s ease-in-out infinite;filter:drop-shadow(0 6px 12px rgba(0,0,0,.6))}
-@keyframes swim{0%{transform:translate(0,0) scaleX(1)}45%{transform:translate(360px,-18px) scaleX(1)}
-  50%{transform:translate(380px,-18px) scaleX(-1)}95%{transform:translate(10px,12px) scaleX(-1)}
-  100%{transform:translate(0,0) scaleX(1)}}
+  animation:swim 24s ease-in-out infinite;filter:drop-shadow(0 6px 12px rgba(0,0,0,.6));
+  transform:scaleX(-1)}
+/* рыбка нарисована головой влево, поэтому в начале она отражена: плывёт головой вперёд */
+@keyframes swim{0%{transform:translate(0,0) scaleX(-1)}45%{transform:translate(360px,-18px) scaleX(-1)}
+  50%{transform:translate(380px,-18px) scaleX(1)}95%{transform:translate(10px,12px) scaleX(1)}
+  100%{transform:translate(0,0) scaleX(-1)}}
 .impeller{position:absolute;left:9%;bottom:12%;width:44px;height:44px}
 .impeller .blades{transform-origin:50% 50%;animation:spin 2.6s linear infinite;animation-play-state:paused}
 body.pump-on .impeller .blades{animation-play-state:running}
@@ -120,10 +122,10 @@ body.heat-on .heatwaves{opacity:1}
 .ring-fg{fill:none;stroke:var(--accent);stroke-width:3.5;stroke-linecap:round;
   stroke-dasharray:596.9;stroke-dashoffset:596.9;transition:stroke-dashoffset .8s cubic-bezier(.3,0,.2,1),stroke .8s;
   filter:drop-shadow(0 0 10px rgba(var(--accent-rgb),.6))}
-.ring-band{fill:none;stroke:rgba(34,211,127,.35);stroke-width:10;stroke-dasharray:4 6}
+.ring-band{fill:none;stroke:rgba(34,211,127,.55);stroke-width:9;stroke-linecap:butt}
 body.heating .ring-fg{animation:ringPulse 1.8s ease-in-out infinite}
 @keyframes ringPulse{0%,100%{opacity:1}50%{opacity:.45}}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;align-content:start}
 .tile{background:var(--panel2);border-radius:14px;padding:11px 13px;border:1px solid var(--line)}
 .tile .k{display:block;color:var(--dim);font-size:11.5px;letter-spacing:.02em}
 .tile .v{font-size:19px;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -194,7 +196,8 @@ input:focus{outline:1px solid rgba(var(--accent-rgb),.6);border-color:transparen
 .days{display:flex;gap:7px;flex-wrap:wrap}
 .day{border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:10px;
   padding:8px 12px;font:inherit;font-size:12.5px;cursor:pointer;transition:.2s}
-.day.on{background:rgba(var(--accent-rgb),.18);border-color:rgba(var(--accent-rgb),.5);color:var(--accent)}
+.day.on{background:var(--accent);border-color:transparent;color:#03121b;font-weight:700;
+  box-shadow:0 0 18px -4px rgba(var(--accent-rgb),.85)}
 .sl{display:flex;align-items:center;gap:12px;margin-top:10px;font-size:12.5px;color:var(--dim)}
 .sl>span{width:86px;flex:0 0 auto}
 .sl>b{width:52px;text-align:right;color:var(--fg);font-variant-numeric:tabular-nums;font-weight:600}
@@ -219,6 +222,32 @@ canvas{width:100%;display:block;border-radius:14px;cursor:crosshair}
 .tr.head{color:var(--mute);font-size:11px;letter-spacing:.05em;text-transform:uppercase}
 .tr:last-child{border-bottom:0}
 .empty{color:var(--mute);font-size:12.5px;padding:10px 4px}
+/* ══════════ WI-FI ══════════ */
+.nets{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.nets:empty{display:none}
+.net{border:1px solid var(--line);background:var(--panel2);border-radius:11px;padding:9px 13px;
+  font:inherit;font-size:12.5px;cursor:pointer;color:var(--fg);transition:.2s;text-align:left}
+.net:hover{border-color:rgba(var(--accent-rgb),.55);background:rgba(var(--accent-rgb),.13);transform:translateY(-1px)}
+.net b{font-weight:600}
+.net i{color:var(--dim);font-style:normal;margin-left:7px;font-variant-numeric:tabular-nums}
+/* ══════════ СВОРАЧИВАЕМЫЕ БЛОКИ ══════════ */
+details.acc{padding:0;overflow:hidden}
+details.acc>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;
+  gap:12px;padding:18px;font-size:13px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#c9d5e3;
+  transition:background .2s}
+details.acc>summary::-webkit-details-marker{display:none}
+details.acc>summary:hover{background:rgba(255,255,255,.03)}
+.accRight{display:inline-flex;align-items:center;gap:10px;letter-spacing:0;text-transform:none}
+.chev{color:var(--dim);transition:transform .3s ease;font-size:14px}
+details.acc[open] .chev{transform:rotate(180deg)}
+details.acc[open]>summary{border-bottom:1px solid var(--line)}
+.accBody{padding:18px}
+details.acc[open]{border-color:rgba(var(--accent-rgb),.3)}
+/* ══════════ ОБНОВЛЕНИЕ С GITHUB ══════════ */
+.gh{border:1px solid rgba(var(--accent-rgb),.28);background:rgba(var(--accent-rgb),.055);
+  border-radius:14px;padding:14px;margin-bottom:14px}
+.ghHead{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.ghHead b{font-size:13.5px;color:var(--fg)}
 /* ══════════ OTA ══════════ */
 .drop{border:1.5px dashed rgba(var(--accent-rgb),.4);border-radius:14px;padding:18px;text-align:center;
   color:var(--dim);font-size:13px;cursor:pointer;transition:.25s;background:rgba(var(--accent-rgb),.04)}
@@ -439,7 +468,10 @@ body.night .card{background:rgba(255,255,255,.03)}
       <label class="f">Переход, мин<input type="number" id="lramp" min="1" max="180"></label>
       <button class="btn primary" onclick="applyLight()">Применить расписание</button>
     </div>
-    <div class="days" id="days" style="margin-top:14px"></div>
+    <div class="row" style="align-items:center;margin-top:14px;gap:14px">
+      <div class="days" id="days"></div>
+      <span class="note" id="daysNote">—</span>
+    </div>
     <div id="chans"></div>
     <p class="note" id="nlen" style="margin-top:12px">—</p>
   </div>
@@ -464,31 +496,79 @@ body.night .card{background:rgba(255,255,255,.03)}
     </div>
   </div>
 
-  <!-- диагностика -->
-  <div class="card wide">
-    <div class="head"><h2>Диагностика и обновление</h2><span class="note" id="diagNote">—</span></div>
-    <div class="tiles" id="diag"></div>
-    <div class="row" style="margin-top:14px">
-      <button class="btn ghost" onclick="cmd('timesync=1','запрос времени у NTP')">Синхронизировать время</button>
-      <button class="btn ghost" onclick="cmd('scan=1','поиск датчиков')">Найти датчики</button>
-      <button class="btn ghost" onclick="showSensors()">Адреса датчиков</button>
-      <button class="btn ghost" onclick="cmd('conf=1','настройки сохранены')">Сохранить настройки</button>
-      <button class="btn ghost danger" onclick="if(confirm('Сбросить настройки к заводским?'))cmd('reset=1','сброс настроек')">Сброс</button>
-      <button class="btn ghost danger" onclick="if(confirm('Перезагрузить плату?'))cmd('reboot=1','перезагрузка')">Перезагрузка</button>
-    </div>
-    <div class="drop" id="drop" style="margin-top:14px">
-      <b>Обновление прошивки по воздуху</b><br>
-      перетащите сюда файл <code>firmware.bin</code> или нажмите, чтобы выбрать
-      <input type="file" id="fwfile" accept=".bin" style="display:none">
-    </div>
-    <div class="prog" id="prog"><i id="progFill"></i></div>
-  </div>
-
   <!-- циклы -->
   <div class="card wide">
     <div class="head"><h2>Журнал циклов нагрева</h2><span class="note" id="cycNote">—</span></div>
     <div class="table" id="cyc"></div>
   </div>
+
+  <!-- Wi-Fi (свёрнуто, в самом низу) -->
+  <details class="card wide acc" id="accWifi">
+    <summary>
+      <span class="accTitle">Wi-Fi</span>
+      <span class="accRight"><span class="pill" id="w-pill">—</span><span class="chev">▾</span></span>
+    </summary>
+    <div class="accBody">
+      <p class="note" id="w-now">—</p>
+      <div class="row">
+        <label class="f" style="flex:1 1 190px">Сеть (SSID)
+          <input type="text" id="w-ssid" placeholder="имя сети" autocomplete="off" spellcheck="false" style="width:100%">
+        </label>
+        <label class="f" style="flex:1 1 190px">Пароль
+          <input type="password" id="w-pass" placeholder="пароль сети" autocomplete="new-password" style="width:100%">
+        </label>
+        <button class="btn primary" onclick="wifiConnect()">Подключить</button>
+        <button class="btn" onclick="wifiScan()">Найти сети</button>
+        <button class="btn ghost danger" onclick="wifiForget()">Забыть сеть</button>
+      </div>
+      <div id="w-list" class="nets"></div>
+      <p class="note" style="margin-top:12px">
+        В списке только сети <b>2,4 ГГц</b> — те, которые плата видит сама. Сеть и пароль сохраняются
+        в энергонезависимой памяти: перепрошивать плату при смене роутера больше не нужно.
+        После успешного подключения точка доступа «Aquarium» погаснет через 30 секунд — плата
+        продолжит работу в вашей сети, новый адрес появится в этом же блоке.
+      </p>
+    </div>
+  </details>
+
+  <!-- диагностика и обновление (свёрнуто, в самом низу) -->
+  <details class="card wide acc" id="accDiag">
+    <summary>
+      <span class="accTitle">Диагностика и обновление</span>
+      <span class="accRight"><span class="note" id="diagNote">—</span><span class="chev">▾</span></span>
+    </summary>
+    <div class="accBody">
+      <div class="tiles" id="diag"></div>
+
+      <div class="gh" id="ghBox">
+        <div class="ghHead">
+          <b>Обновление прошивки с GitHub</b>
+          <span class="note" id="ghInfo">нажмите «Проверить обновление» — плата сама скачает свежий файл</span>
+        </div>
+        <div class="row">
+          <button class="btn primary" onclick="ghCheck()">Проверить обновление</button>
+          <button class="btn" id="ghRun" onclick="ghRun()" disabled>Обновить с GitHub</button>
+          <span class="note" id="ghUrl"></span>
+        </div>
+        <div class="prog" id="ghProg"><i id="ghProgFill"></i></div>
+      </div>
+
+      <div class="row" style="margin-top:14px">
+        <button class="btn ghost" onclick="cmd('timesync=1','запрос времени у NTP')">Синхронизировать время</button>
+        <button class="btn ghost" onclick="cmd('scan=1','поиск датчиков')">Найти датчики</button>
+        <button class="btn ghost" onclick="showSensors()">Адреса датчиков</button>
+        <button class="btn ghost" onclick="cmd('conf=1','настройки сохранены')">Сохранить настройки</button>
+        <button class="btn ghost danger" onclick="if(confirm('Сбросить настройки к заводским?'))cmd('reset=1','сброс настроек')">Сброс</button>
+        <button class="btn ghost danger" onclick="if(confirm('Перезагрузить плату?'))cmd('reboot=1','перезагрузка')">Перезагрузка</button>
+      </div>
+      <div class="drop" id="drop" style="margin-top:14px">
+        <b>Обновление файлом по воздуху</b><br>
+        перетащите сюда файл <code>firmware.bin</code> или нажмите, чтобы выбрать
+        <input type="file" id="fwfile" accept=".bin" style="display:none">
+      </div>
+      <div class="prog" id="prog"><i id="progFill"></i></div>
+    </div>
+  </details>
 </section>
 
 <footer>
@@ -552,6 +632,90 @@ function setRange(i){
   for(var k=0;k<3;k++) $('rg'+k).className=(k===i?'on':'');
   fetchHistory();
 }
+
+/* ---------- Wi-Fi: настройка со страницы ---------- */
+function wifiConnect(){
+  var s=$('w-ssid').value.trim(), p=$('w-pass').value;
+  if(!s){ toast('укажите имя сети','err'); return; }
+  toast('сохраняю сеть «'+s+'»');
+  fetch('/api/wifi?ssid='+encodeURIComponent(s)+'&pass='+encodeURIComponent(p),{cache:'no-store'})
+    .then(function(r){return r.json()})
+    .then(function(j){
+      if(j&&j.ok){ toast('плата переключается на «'+s+'» — смотрите статус выше','ok'); $('w-pass').value=''; }
+      else toast('не удалось: '+((j&&j.err)||'ошибка'),'err');
+    }).catch(function(){ toast('нет связи с платой','err'); });
+}
+function wifiForget(){
+  if(!confirm('Удалить сохранённую сеть? Плата вернётся к настройкам из config.h.')) return;
+  fetch('/api/wifi?forget=1',{cache:'no-store'}).then(function(r){return r.json()}).then(function(){
+    toast('сохранённая сеть удалена','ok');
+  }).catch(function(){ toast('нет связи с платой','err'); });
+}
+function wifiScan(){
+  $('w-list').innerHTML='<span class="note">сканирую 2,4 ГГц…</span>';
+  toast('сканирую эфир…');
+  fetch('/api/scanwifi',{cache:'no-store'}).then(function(r){return r.text()}).then(function(txt){
+    var lines=txt.split('\n'), h='';
+    for(var i=0;i<lines.length;i++){
+      if(!lines[i]) continue;
+      var p=lines[i].split('|'); if(p.length<3) continue;
+      var rssi=p[0], enc=(p[1]==='1'), ssid=p.slice(2).join('|');
+      var lvl=Math.max(1,Math.min(4,Math.round((Number(rssi)+95)/12)));
+      h+='<button class="net" data-ssid="'+ssid.replace(/"/g,'&quot;')+'" onclick="pickNet(this)">'+
+         '<b>'+ssid+'</b><i>'+rssi+' дБм'+(enc?' · пароль':' · открытая')+'</i></button>';
+    }
+    $('w-list').innerHTML=h||'<span class="note">сети 2,4 ГГц не найдены</span>';
+    if(!h) toast('сети 2,4 ГГц не найдены','err');
+  }).catch(function(){ $('w-list').innerHTML=''; toast('не удалось просканировать','err'); });
+}
+function pickNet(btn){
+  $('w-ssid').value=btn.getAttribute('data-ssid');
+  $('w-pass').focus();
+}
+
+/* ---------- обновление прошивки с GitHub ---------- */
+var ghSize=0;
+function ghStream(url,onLine){
+  fetch(url,{cache:'no-store'}).then(function(r){
+    if(!r.body||!r.body.getReader){ return r.text().then(function(t){ t.split('\n').forEach(onLine); }); }
+    var rd=r.body.getReader(), dec=new TextDecoder(), buf='';
+    function pump(){
+      return rd.read().then(function(res){
+        if(res.done) return;
+        buf+=dec.decode(res.value,{stream:true});
+        var i;
+        while((i=buf.indexOf('\n'))>=0){ var line=buf.slice(0,i); buf=buf.slice(i+1); if(line) onLine(line); }
+        return pump();
+      });
+    }
+    return pump();
+  }).catch(function(){ toast('нет связи с платой','err'); });
+}
+function ghCheck(){
+  $('ghInfo').textContent='проверяю файл на GitHub…';
+  $('ghRun').disabled=true; ghSize=0;
+  ghStream('/api/updcheck',function(line){
+    var c=line.charAt(0), v=line.slice(2);
+    if(c==='S') $('ghInfo').textContent=v;
+    else if(c==='I'){ $('ghInfo').textContent='доступна прошивка: '+v; }
+    else if(c==='D'){ $('ghInfo').textContent='файл доступен — можно обновляться'; $('ghRun').disabled=false; toast('прошивка на GitHub доступна','ok'); }
+    else if(c==='E'){ $('ghInfo').textContent=v; toast(v,'err'); }
+  });
+}
+function ghRun(){
+  if(!confirm('Скачать прошивку с GitHub и прошить плату? Плата перезагрузится.')) return;
+  $('ghProg').classList.add('show'); $('ghProgFill').style.width='0%';
+  $('ghRun').disabled=true;
+  $('ghInfo').textContent='скачиваю прошивку…';
+  ghStream('/api/updrun',function(line){
+    var c=line.charAt(0), v=line.slice(2);
+    if(c==='S') $('ghInfo').textContent=v;
+    else if(c==='I') $('ghInfo').textContent='скачиваю '+v;
+    else if(c==='P'){ var p=parseInt(v,10)||0; $('ghProgFill').style.width=p+'%'; $('ghInfo').textContent='загрузка '+p+'%'; }
+    else if(c==='D'){ $('ghProgFill').style.width='100%'; $('ghInfo').textContent=v; toast('прошивка обновлена — плата перезагружается','ok'); }
+    else if(c==='E'){ $('ghProg').classList.remove('show'); $('ghInfo').textContent=v; $('ghRun').disabled=false; toast(v,'err'); }
+  });
+}
 function showSensors(){
   fetch('/api/scan',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
     var t='Датчиков 1-Wire: '+j.n+'\n';
@@ -576,8 +740,7 @@ function bumpSet(d){
 
 /* ---------- скелет интерфейса ---------- */
 function buildHero(){
-  var t=[['Температура воздуха','air'],['Уставка','sp'],['Полоса термостата','band'],['Нагрев','heat'],
-         ['До уставки','est'],['Энергия сегодня','kwh']];
+  var t=[['Температура воздуха','air'],['Уставка','sp'],['Нагрев','heat']];
   var h='';
   for(var i=0;i<t.length;i++) h+='<div class="tile"><span class="k">'+t[i][0]+'</span><span class="v" id="h-'+t[i][1]+'">—</span></div>';
   $('heroStats').innerHTML=h;
@@ -702,21 +865,26 @@ function render(){
   $('waterCol').style.height=wh;
 
   /* температура */
-  tween('tempVal',Number(S.t)||0,2,'');
+  if(S.tok){
+    tween('tempVal',Number(S.t)||0,2,'');
+  } else {
+    $('tempVal').textContent='—';
+  }
   $('tempSub').textContent=nightLight?'Ночник':(PH[S.phase]||'—');
   $('tempTiny').textContent=S.tok?('вода · цель '+nf(S.sp,1)+' °C'):'ДАТЧИК ВОДЫ НЕ НАЙДЕН';
-  var span=4.0, lo=S.sp-span/2, p=(S.t-lo)/span; p=Math.max(0,Math.min(1,p));
-  $('ring').style.strokeDashoffset=(596.9*(1-p)).toFixed(1);
-  var hy=Number(S.hy)||0.4, w1=(S.sp-hy-lo)/span, w2=(S.sp+hy-lo)/span;
-  $('ringBand').style.strokeDasharray='4 6';
+  /* кольцо: длина окружности r=95 -> 596.9; полоса термостата рисуется дугой */
+  var L=596.9, span=4.0, lo=S.sp-span/2;
+  var p=(Number(S.t)-lo)/span; p=Math.max(0,Math.min(1,p));
+  $('ring').style.strokeDashoffset=(L*(1-p)).toFixed(1);
+  var hy=Number(S.hy)||0.4;
+  var b1=Math.max(0,Math.min(1,((S.sp-hy)-lo)/span)), b2=Math.max(0,Math.min(1,((S.sp+hy)-lo)/span));
+  $('ringBand').style.strokeDasharray=((b2-b1)*L).toFixed(1)+' '+(L*2).toFixed(1);
+  $('ringBand').style.strokeDashoffset=(-b1*L).toFixed(1);
 
   /* плитки героя */
   tween('h-air',Number(S.ta)||0,2,' °C');
   $('h-sp').textContent=nf(S.sp,1)+' °C';
-  $('h-band').textContent=nf(S.sp-S.hy,1)+'…'+nf(S.sp+S.hy,1)+' °C';
   $('h-heat').textContent=S.heat?('включён '+fmtDur(S.hl)):'выключен';
-  $('h-est').textContent=(S.tok&&S.t<S.sp-0.05)?('≈ '+Math.max(1,Math.round(S.est/60))+' мин'):'—';
-  tween('h-kwh',Number(S.kwhd)/100,2,' кВт·ч');
 
   /* реле */
   cls('p-pump','pill',S.pump); cls('p-air','pill',S.air);
@@ -753,12 +921,15 @@ function render(){
   $('p-light').className='pill '+((!S.lmod||S.lp[0]>0)?'on':'');
   setv($('lon'),S.on); setv($('loff'),S.off); setv($('lnoff'),S.noff); setv($('lramp'),S.ramp);
   if($('days').dataset.m!==String(S.days)){
-    var d='';
-    for(var i=1;i<=7;i++){ var wd=i%7, onn=(S.days>>wd)&1;
+    var d='', cnt=0;
+    for(var i=1;i<=7;i++){ var wd=i%7, onn=(S.days>>wd)&1; if(onn) cnt++;
       d+='<button class="day'+(onn?' on':'')+'" onclick="cmd(\'days='+((S.days^(1<<wd))&0x7F)+'\',\'расписание обновлено\')">'+WD[wd]+'</button>'; }
     $('days').innerHTML=d;
     $('days').dataset.m=S.days;
   }
+  var dayCnt=0;
+  for(var di=0;di<7;di++) if((S.days>>di)&1) dayCnt++;
+  $('daysNote').textContent=(dayCnt===7)?'включены все 7 дней':(dayCnt===0?'светильник не включается ни в один день':'включено дней: '+dayCnt+' из 7');
   if(!builtChans){ buildChans(); builtChans=true; }
   for(var c=0;c<S.nch;c++){
     var vd=$('vday'+c), vn=$('vnight'+c), vm=$('vman'+c);
@@ -775,6 +946,20 @@ function render(){
   $('nlen').textContent=!S.night[0]?'ночник выключен — ночью светильник не горит':
     (nl<=0?'ночник гаснет сразу после заката':'ночник горит '+fmtDur(nl*60)+' после заката, затем светильник выключается до утра');
   buildDaySegments();
+
+  /* Wi-Fi */
+  var wst=S.wst||'wait';
+  var wmap={ok:['ok','ПОДКЛЮЧЕНО'],wait:['','ПОДКЛЮЧАЮСЬ'],nosid:['err','СЕТЬ НЕ НАЙДЕНА'],
+            badpass:['err','ПРОВЕРЬТЕ ПАРОЛЬ'],lost:['err','СВЯЗЬ ПОТЕРЯНА']};
+  var wm=wmap[wst]||wmap.wait;
+  $('w-pill').className='pill '+wm[0];
+  $('w-pill').textContent=wm[1];
+  $('w-now').textContent=(wst==='ok')
+      ? ('подключено к «'+(S.ssid||S.wssid)+'» · адрес '+S.ip+' · сигнал '+(S.rssi||0)+' дБм')
+      : (S.ap ? ('режим точки доступа · http://192.168.4.1 · пытаюсь выйти в «'+(S.wssid||'—')+'»')
+              : ('подключаюсь к «'+(S.wssid||'—')+'»…'));
+  if(!$('w-ssid').value && S.wssid && wst!=='ok') $('w-ssid').value=S.wssid;
+  $('w-pass').placeholder=S.wcustom?'пароль сохранён — введите, только чтобы заменить':'пароль сети';
 
   /* журнал циклов */
   var h='<div class="tr head"><span>#</span><span>Время</span><span>Старт</span><span>Конец</span><span>Нагрев</span><span>Ошибка</span></div>';
@@ -806,6 +991,8 @@ function render(){
   $('d-req').textContent=(S.reqs||0)+' (команд '+(S.cmds||0)+')';
   $('d-rst').textContent=S.rstrt||'—';
   $('diagNote').textContent=S.al?(S.altext||'есть тревоги'):'все системы в норме';
+  if($('ghBox')) $('ghBox').style.display=S.ogithub?'':'none';
+  if($('ghUrl')) $('ghUrl').textContent=S.ogithub?'источник: build/prebuilt в вашем репозитории':'';
 
   $('footInfo').textContent=(S.name||'')+' v'+(S.fw||'')+' · http://'+(S.ip||'')+
     ' · работает '+fmtDur(S.up)+' · heap '+Math.round((S.hp||S.heap||0)/1024)+' КБ';
@@ -926,7 +1113,15 @@ document.addEventListener('click',function(e){
 /* ---------- связь и запуск ---------- */
 setInterval(function(){
   var age=lastOk?Math.round((Date.now()-lastOk)/1000):999;
-  if(age>6){ $('offline').classList.add('show'); $('offTimer').textContent='последние данные: '+age+' с назад'; }
+  if(age>6){
+    $('offline').classList.add('show');
+    var msg='последние данные: '+age+' с назад';
+    /* плата ушла в домашнюю сеть из точки доступа — подсказываем новый адрес */
+    if(S&&S.ip&&S.ip!=='0.0.0.0'&&S.ip.indexOf('192.168.4.')!==0){
+      msg='плата уже в сети — откройте <a href="http://'+S.ip+'" style="color:var(--accent)">http://'+S.ip+'</a>';
+    }
+    $('offTimer').innerHTML=msg;
+  }
 },1000);
 setInterval(function(){ if(!S||Date.now()-lastOk>6000) poll(); },5000);
 setInterval(function(){ if(Date.now()-lastOk<6000) fetchHistory(); },60000);
@@ -955,7 +1150,7 @@ window.addEventListener('visibilitychange',function(){ if(!document.hidden){ pol
     on: '08:00', off: '20:00', noff: '23:00', nlen: 180, ramp: 40, days: 127,
     time: '14:23:05', date: '08.10.2026', wd: 4, tsrc: 'ntp',
     ip: '192.168.1.50', gw: '192.168.1.1', ssid: 'HomeWiFi', host: 'aquarium',
-    ap: 0, rssi: -58, nvm: 1, rstrt: 'включение питания',
+    ap: 0, rssi: -58, wssid: 'HomeWiFi', wst: 'ok', wcustom: 1, ogithub: 1, nvm: 1, rstrt: 'включение питания',
     reqs: 1284, cmds: 37, ota: 0, wd: 1, al: 0, altext: '',
     hist: 240, histmax: 5760, step: 15,
     cyc: [
@@ -1003,6 +1198,21 @@ window.addEventListener('visibilitychange',function(){ if(!document.hidden){ pol
     if (url.indexOf('/api/cmd') === 0) {
       apply(url.split('?')[1] || '');
       return Promise.resolve({ json: function () { return Promise.resolve({ ok: 1, applied: 1 }); } });
+    }
+    if (url.indexOf('/api/wifi') === 0) {
+      var q = url.split('?')[1] || '';
+      if (q.indexOf('forget') === 0) { S.wcustom = 0; S.wssid = 'ВАША_СЕТЬ_2.4ГГц'; S.wst = 'nosid'; }
+      else {
+        var m1 = q.match(/ssid=([^&]*)/), m2 = q.match(/pass=([^&]*)/);
+        S.wssid = m1 ? decodeURIComponent(m1[1]) : S.wssid;
+        S.wcustom = 1; S.wst = 'wait';
+        setTimeout(function () { S.wst = 'ok'; S.ssid = S.wssid; S.rssi = -47; S.ip = '192.168.1.51'; }, 4000);
+      }
+      return Promise.resolve({ json: function () { return Promise.resolve({ ok: 1 }); } });
+    }
+    if (url.indexOf('/api/scanwifi') === 0) {
+      var list = '-42|1|HomeWiFi\n-58|1|TP-LINK_A8F2\n-67|1|MTS_Router_5G\n-73|0|Guest\n-81|1|Ростелеком-2G';
+      return Promise.resolve({ text: function () { return Promise.resolve(list); } });
     }
     if (url.indexOf('/api/history') === 0) return Promise.resolve({ json: function () { return Promise.resolve(H); } });
     if (url.indexOf('/api/scan') === 0) return Promise.resolve({ json: function () { return Promise.resolve({ ok: 1, n: 2, water: 0, air: 1, dev: ['28FF64A1B2C3D4E5', '28FF9F0A1B2C3D4E6'] }); } });

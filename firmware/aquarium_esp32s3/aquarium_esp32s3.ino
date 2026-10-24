@@ -27,6 +27,8 @@
 #include <Preferences.h>
 #include <Update.h>
 #include <ArduinoOTA.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <time.h>
@@ -152,7 +154,8 @@ struct Telemetry {
   uint16_t year;
   bool     timeFromNtp, timeApprox;
   char     ip[16], gw[16], ssid[33];
-  bool     apMode, staConnected;
+  char     wifiSsid[33], wifiStatus[10];
+  bool     apMode, staConnected, wifiCustom;
   int32_t  rssi;
   uint32_t uptimeSec, requests, cmds;
   uint32_t freeHeap, psramSize;
@@ -222,6 +225,17 @@ static uint32_t staLostSince = 0;
 static bool wifiWasConnected = false;
 static uint32_t wifiNextTry = 0, apNextTry = 0;
 static char ipStr[16] = "0.0.0.0", gwStr[16] = "0.0.0.0";
+
+/* --- Wi-Fi, который настраивается со страницы и хранится в NVS --- */
+static char wifiSsid[33] = WIFI_SSID;      // к какой сети подключаемся
+static char wifiPass[64] = WIFI_PASS;
+static bool wifiCustom = false;            // данные пришли со страницы, а не из config.h
+static char wifiNewSsid[33];               // заявка от веб-задачи
+static char wifiNewPass[64];
+static volatile bool wifiApplyReq = false;
+static volatile bool wifiForgetReq = false;
+static uint32_t apDropAt = 0;              // когда гасить точку доступа после успеха
+static uint32_t wifiTryingSince = 0;       // с какого момента пробуем новую сеть
 
 static uint32_t httpRequests = 0, httpCmds = 0;
 static esp_reset_reason_t resetReason = ESP_RST_UNKNOWN;
@@ -827,19 +841,70 @@ static void printNetBanner(const char* why) {
   Serial.println();
 }
 
+/* --- данные сети: берём из NVS, если их туда положили со страницы --- */
+static void wifiLoadCreds() {
+  snprintf(wifiSsid, sizeof(wifiSsid), "%s", WIFI_SSID);
+  snprintf(wifiPass, sizeof(wifiPass), "%s", WIFI_PASS);
+  wifiCustom = false;
+  String s = prefs.getString("wssid", "");
+  if (s.length() > 0) {
+    snprintf(wifiSsid, sizeof(wifiSsid), "%s", s.c_str());
+    snprintf(wifiPass, sizeof(wifiPass), "%s", prefs.getString("wpass", "").c_str());
+    wifiCustom = true;
+  }
+}
+
+static void wifiSaveCreds(const char* ssid, const char* pass) {
+  if (!ssid || !*ssid) return;
+  prefs.putString("wssid", ssid);
+  prefs.putString("wpass", pass ? pass : "");
+  snprintf(wifiSsid, sizeof(wifiSsid), "%s", ssid);
+  snprintf(wifiPass, sizeof(wifiPass), "%s", pass ? pass : "");
+  wifiCustom = true;
+  apDropAt = 0;
+}
+
+static void wifiForgetCreds() {
+  prefs.remove("wssid");
+  prefs.remove("wpass");
+  snprintf(wifiSsid, sizeof(wifiSsid), "%s", WIFI_SSID);
+  snprintf(wifiPass, sizeof(wifiPass), "%s", WIFI_PASS);
+  wifiCustom = false;
+  apDropAt = 0;
+}
+
+/* короткий код состояния для страницы: ok / wait / nosid / badpass / lost */
+static const char* wifiStatusKey() {
+  uint8_t st = WiFi.status();
+  if (st == WL_CONNECTED) return "ok";
+  if (st == WL_NO_SSID_AVAIL) return "nosid";
+  if (st == WL_CONNECT_FAILED) return "badpass";
+  if (st == WL_CONNECTION_LOST) return "lost";
+  return "wait";
+}
+
 static void connectSta() {
 #if USE_STATIC_IP
   IPAddress ip(STATIC_IP), gw(STATIC_GW), mask(STATIC_MASK), dns(STATIC_DNS);
   WiFi.config(ip, gw, mask, dns);
 #endif
   WiFi.setHostname(WIFI_HOSTNAME);
-  Serial.print(F("[wifi] подключаюсь к сети \"")); Serial.print(WIFI_SSID); Serial.println(F("\" ..."));
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.print(F("[wifi] подключаюсь к сети \"")); Serial.print(wifiSsid);
+  Serial.print(F("\""));
+  if (wifiCustom) Serial.print(F(" (данные со страницы)"));
+  Serial.println(F(" ..."));
+  WiFi.begin(wifiSsid, wifiPass);
 }
 
 static void startAP() {
   Serial.println();
   Serial.print(F("[wifi] поднимаю точку доступа \"")); Serial.print(AP_SSID); Serial.println(F("\""));
+  /* Сначала аккуратно прекращаем попытку подключения: иначе ESP-IDF
+     пишет в лог «sta is connecting, cannot set config» при смене режима. */
+  if (WiFi.status() == WL_IDLE_STATUS || WiFi.status() == WL_DISCONNECTED ||
+      WiFi.status() == WL_NO_SSID_AVAIL || WiFi.status() == WL_CONNECT_FAILED) {
+    WiFi.disconnect(false, false);
+  }
   WiFi.mode(WIFI_AP_STA);                  // AP и попытки подключиться к роутеру — одновременно
   WiFi.softAP(AP_SSID, AP_PASS);
   tele.apMode = true;
@@ -853,6 +918,7 @@ static void startAP() {
 }
 
 static void netBegin() {
+  wifiLoadCreds();                         // сеть из NVS (если настроена со страницы)
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
   WiFi.mode(WIFI_STA);
@@ -867,6 +933,34 @@ static void netTask() {
   if (now - lastCheck < 1000) return;
   lastCheck = now;
 
+  /* ---- заявки со страницы: сменить сеть или забыть её ---- */
+  if (wifiForgetReq) {
+    wifiForgetReq = false;
+    wifiForgetCreds();
+    Serial.println(F("[wifi] сохранённая сеть удалена, возвращаюсь к данным из config.h"));
+    bannerValid = false;
+    wifiWasConnected = false;
+    staLostSince = 0;
+    WiFi.disconnect();
+    connectSta();
+    wifiTryingSince = now;
+    wifiNextTry = now + WIFI_RETRY_MS;
+  }
+  if (wifiApplyReq) {
+    wifiApplyReq = false;
+    wifiSaveCreds(wifiNewSsid, wifiNewPass);
+    Serial.print(F("[wifi] сохранил сеть \"")); Serial.print(wifiSsid);
+    Serial.println(F("\" в память, переподключаюсь"));
+    bannerValid = false;
+    wifiWasConnected = false;
+    staLostSince = 0;
+    WiFi.disconnect();
+    connectSta();
+    wifiTryingSince = now;
+    wifiNextTry = now + WIFI_RETRY_MS;
+    Serial.println(F("[wifi] если сеть не ответит за 45 с — останется точка доступа"));
+  }
+
   uint8_t st = WiFi.status();
   tele.staConnected = (st == WL_CONNECTED);
 
@@ -877,6 +971,7 @@ static void netTask() {
     tele.rssi = WiFi.RSSI();
     wifiWasConnected = true;
     staLostSince = 0;
+    wifiTryingSince = 0;
     const char* ssidNow = WiFi.SSID().c_str();
     if (!bannerValid) {
       Serial.print(F("[wifi] подключено к \"")); Serial.print(ssidNow);
@@ -891,6 +986,18 @@ static void netTask() {
       printNetBanner("подключение к роутеру выполнено");
       bannerValid = true;
     }
+    /* вышли в сеть — точку доступа держим ещё 30 секунд, чтобы страница показала новый адрес */
+    if (tele.apMode) {
+      if (apDropAt == 0) {
+        apDropAt = now + 30000UL;
+        Serial.println(F("[wifi] сеть найдена — точка доступа выключится через 30 секунд"));
+      } else if ((int32_t)(now - apDropAt) >= 0) {
+        WiFi.softAPdisconnect(true);
+        tele.apMode = false;
+        apDropAt = 0;
+        Serial.println(F("[wifi] точка доступа выключена, плата работает в вашей сети"));
+      }
+    }
     lastWlStatus = st;
     return;
   }
@@ -903,6 +1010,16 @@ static void netTask() {
     Serial.println();
     lastWlStatus = st;
     bannerValid = false;
+  }
+
+  /* новая сеть не ответила за 45 с — возвращаем точку доступа, чтобы не потерять доступ */
+  if (wifiTryingSince && (now - wifiTryingSince) > 45000UL) {
+    wifiTryingSince = 0;
+    if (!tele.apMode) {
+      Serial.println(F("[wifi] новая сеть не ответила — поднимаю точку доступа для настройки"));
+      startAP();
+      return;
+    }
   }
 
   if (wifiWasConnected) {
@@ -930,7 +1047,9 @@ static void netTask() {
     return;
 #endif
   }
-  if (!tele.apMode) connectSta();
+  /* повторная попытка: не дёргаем begin(), пока идёт предыдущее подключение */
+  if (!tele.apMode && (st == WL_DISCONNECTED || st == WL_NO_SSID_AVAIL || st == WL_CONNECT_FAILED))
+    connectSta();
 }
 
 /* ====================== ПУБЛИКАЦИЯ СОСТОЯНИЯ ====================== */
@@ -986,8 +1105,13 @@ static void publishTelemetry() {
   strncpy(tele.ip, ipStr, sizeof(tele.ip) - 1); tele.ip[sizeof(tele.ip) - 1] = 0;
   strncpy(tele.gw, gwStr, sizeof(tele.gw) - 1); tele.gw[sizeof(tele.gw) - 1] = 0;
   String s = WiFi.SSID();
-  strncpy(tele.ssid, s.length() ? s.c_str() : (tele.apMode ? AP_SSID : WIFI_SSID), sizeof(tele.ssid) - 1);
+  strncpy(tele.ssid, s.length() ? s.c_str() : (tele.apMode ? AP_SSID : wifiSsid), sizeof(tele.ssid) - 1);
   tele.ssid[sizeof(tele.ssid) - 1] = 0;
+  strncpy(tele.wifiSsid, wifiSsid, sizeof(tele.wifiSsid) - 1);
+  tele.wifiSsid[sizeof(tele.wifiSsid) - 1] = 0;
+  strncpy(tele.wifiStatus, wifiStatusKey(), sizeof(tele.wifiStatus) - 1);
+  tele.wifiStatus[sizeof(tele.wifiStatus) - 1] = 0;
+  tele.wifiCustom = wifiCustom;
 
   tele.uptimeSec = millis() / 1000UL;
   tele.requests = httpRequests;
@@ -1056,6 +1180,9 @@ static int buildStateJson(char* out, size_t n) {
   w += snprintf(out + w, n - w, ",\"tsrc\":\"%s\",\"ip\":\"%s\",\"gw\":\"%s\",\"ssid\":\"%s\",\"host\":\"%s\",\"ap\":%u,\"rssi\":%ld",
                 t.timeFromNtp ? "ntp" : (t.timeApprox ? "approx" : "build"),
                 t.ip, t.gw, t.ssid, WIFI_HOSTNAME, t.apMode ? 1 : 0, (long)t.rssi);
+  w += snprintf(out + w, n - w, ",\"wssid\":\"%s\",\"wst\":\"%s\",\"wcustom\":%u",
+                t.wifiSsid, t.wifiStatus, t.wifiCustom ? 1 : 0);
+  w += snprintf(out + w, n - w, ",\"ogithub\":%u", (unsigned)(ENABLE_GITHUB_OTA ? 1 : 0));
   w += snprintf(out + w, n - w, ",\"nvm\":%u,\"rstrt\":\"%s\",\"reqs\":%lu,\"cmds\":%lu,\"ota\":%u,\"wd\":%u",
                 t.nvmLoaded ? 1 : 0, resetReasonName(resetReason),
                 (unsigned long)t.requests, (unsigned long)t.cmds, t.otaActive ? 1 : 0,
@@ -1213,12 +1340,202 @@ static void httpSendScan(WiFiClient& c) {
   c.flush();
 }
 
+/* ---- обновление прошивки прямо из GitHub по кнопке ----
+   Плата сама скачивает .bin по адресу OTA_GITHUB_URL (config.h) и
+   прошивается им. Ответ идёт без Content-Length, поэтому страница
+   получает строки прогресса по мере скачивания:
+     S <этап>   I <размер>   P <процент>   D <готово>   E <ошибка>       */
+#if ENABLE_GITHUB_OTA
+static void httpOtaGithub(WiFiClient& cs, bool dryRun) {
+  char b[96];
+  cs.print(F("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n"));
+  cs.print(F("Cache-Control: no-store\r\nConnection: close\r\n\r\n"));
+  cs.flush();
+
+  if (strlen(OTA_GITHUB_URL) < 12) {
+    cs.print(F("E адрес прошивки не задан (OTA_GITHUB_URL в config.h)\n"));
+    cs.flush();
+    return;
+  }
+
+  cs.print(F("S подключаюсь к GitHub\n"));
+  cs.flush();
+  Serial.println(F("[ota-gh] запрашиваю прошивку с GitHub"));
+
+  static WiFiClientSecure tls;
+  tls.setInsecure();                       // без проверки сертификата: экономит 40 КБ и код
+  HTTPClient http;
+  http.setTimeout(20000);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  if (!http.begin(tls, OTA_GITHUB_URL)) {
+    cs.print(F("E не удалось начать HTTPS-запрос\n"));
+    cs.flush();
+    return;
+  }
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    snprintf(b, sizeof(b), "E GitHub ответил кодом %d\n", code);
+    cs.print(b);
+    cs.flush();
+    http.end();
+    Serial.print(F("[ota-gh] ошибка, код ")); Serial.println(code);
+    return;
+  }
+  int len = http.getSize();
+  if (len <= 0) {
+    cs.print(F("E не удалось узнать размер файла\n"));
+    cs.flush();
+    http.end();
+    return;
+  }
+  if (len < 200000 || len > 3000000) {     // защита от «не того файла»
+    snprintf(b, sizeof(b), "E подозрительный размер %d байт — это не прошивка\n", len);
+    cs.print(b);
+    cs.flush();
+    http.end();
+    return;
+  }
+  snprintf(b, sizeof(b), "I размер прошивки %d КБ\n", len / 1024);
+  cs.print(b);
+  cs.flush();
+
+  if (dryRun) {
+    http.end();
+    cs.print(F("D проверка пройдена, файл доступен\n"));
+    cs.flush();
+    Serial.println(F("[ota-gh] файл доступен, обновление не запускалось"));
+    return;
+  }
+
+  otaActive = true;
+  if (!Update.begin((size_t)len, U_FLASH)) {
+    snprintf(b, sizeof(b), "E Update.begin: %s\n", Update.errorString());
+    cs.print(b);
+    cs.flush();
+    otaActive = false;
+    http.end();
+    return;
+  }
+  WiFiClient* stream = http.getStreamPtr();
+  uint8_t buf[1460];
+  int got = 0, lastPct = -1;
+  uint32_t t0 = millis();
+  bool failed = false;
+  while (got < len) {
+    size_t avail = stream->available();
+    if (avail == 0) {
+      if ((millis() - t0) > 30000UL) { failed = true; break; }
+      delay(2);
+      continue;
+    }
+    if (avail > sizeof(buf)) avail = sizeof(buf);
+    int n = stream->readBytes(buf, avail);
+    if (n <= 0) continue;
+    if (Update.write(buf, (size_t)n) != (size_t)n) { failed = true; break; }
+    got += n;
+    t0 = millis();
+    int pct = (int)((int64_t)got * 100 / len);
+    if (pct != lastPct) {
+      lastPct = pct;
+      snprintf(b, sizeof(b), "P %d\n", pct);
+      cs.print(b);
+      cs.flush();
+      if (pct % 25 == 0) { Serial.print(F("[ota-gh] ")); Serial.print(pct); Serial.println('%'); }
+    }
+  }
+  http.end();
+  if (failed || got != len) {
+    snprintf(b, sizeof(b), "E скачивание прервалось: %d из %d байт\n", got, len);
+    cs.print(b);
+    cs.flush();
+    Update.abort();
+    otaActive = false;
+    Serial.println(F("[ota-gh] ошибка записи, обновление отменено"));
+    return;
+  }
+  if (!Update.end(true)) {
+    snprintf(b, sizeof(b), "E Update.end: %s\n", Update.errorString());
+    cs.print(b);
+    cs.flush();
+    otaActive = false;
+    return;
+  }
+  cs.print(F("D прошивка записана, перезагрузка\n"));
+  cs.flush();
+  Serial.println(F("[ota-gh] прошивка с GitHub записана, перезагружаюсь"));
+  delay(800);
+  ESP.restart();
+}
+#else
+static void httpOtaGithub(WiFiClient& cs, bool dryRun) {
+  (void)dryRun;
+  httpSendHead(cs, "200 OK", "text/plain; charset=utf-8", -1);
+  cs.print(F("E обновление с GitHub отключено (ENABLE_GITHUB_OTA 0)\n"));
+  cs.flush();
+}
+#endif
+
+/* ---- настройка Wi-Fi со страницы ---- */
+static void httpHandleWifi(WiFiClient& c, const char* query) {
+  char buf[70];
+  if (getParam(query, "forget", buf, sizeof(buf)) && atoi(buf) != 0) {
+    wifiForgetReq = true;
+    Serial.println(F("[http] запрос: забыть сохранённую сеть"));
+    httpSendHead(c, "200 OK", "application/json; charset=utf-8", -1);
+    c.print(F("{\"ok\":1,\"forget\":1}"));
+    c.flush();
+    return;
+  }
+  char ssid[40] = { 0 }, pass[70] = { 0 };
+  if (!getParam(query, "ssid", ssid, sizeof(ssid)) || strlen(ssid) < 1) {
+    httpSendHead(c, "400 Bad Request", "application/json; charset=utf-8", -1);
+    c.print(F("{\"ok\":0,\"err\":\"не указано имя сети\"}"));
+    c.flush();
+    return;
+  }
+  getParam(query, "pass", pass, sizeof(pass));
+  snprintf(wifiNewSsid, sizeof(wifiNewSsid), "%s", ssid);
+  snprintf(wifiNewPass, sizeof(wifiNewPass), "%s", pass);
+  wifiApplyReq = true;
+  httpCmds++;
+  Serial.print(F("[http] новая сеть Wi-Fi из браузера: \"")); Serial.print(ssid); Serial.println('"');
+  httpSendHead(c, "200 OK", "application/json; charset=utf-8", -1);
+  c.print(F("{\"ok\":1,\"saved\":1}"));
+  c.flush();
+}
+
+/* ---- поиск сетей 2.4 ГГц: отдаём простым текстом, чтобы не ломать JSON ---- */
+static void httpSendWifiScan(WiFiClient& c) {
+  Serial.println(F("[wifi] сканирую сети 2.4 ГГц (2-4 секунды) ..."));
+  int n = WiFi.scanNetworks(false, false, false, 400);
+  Serial.print(F("[wifi] найдено сетей: ")); Serial.println(n > 0 ? n : 0);
+  httpSendHead(c, "200 OK", "text/plain; charset=utf-8", -1);
+  for (int i = 0; i < n; i++) {
+    String s = WiFi.SSID(i);
+    if (!s.length()) continue;
+    /* убираем управляющие символы и разделитель, чтобы список нельзя было сломать */
+    String clean;
+    for (size_t k = 0; k < s.length(); k++) {
+      char ch = s[k];
+      clean += (ch == '|' || (uint8_t)ch < 0x20) ? ' ' : ch;
+    }
+    c.print((long)WiFi.RSSI(i));
+    c.print('|');
+    c.print(WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? 0 : 1);
+    c.print('|');
+    c.print(clean);
+    c.print('\n');
+    yield();
+  }
+  WiFi.scanDelete();
+  c.flush();
+}
+
 static void enqueueCmd(const char* key, const char* val) {
   CmdMsg m;
   strncpy(m.key, key, sizeof(m.key) - 1); m.key[sizeof(m.key) - 1] = 0;
   strncpy(m.val, val, sizeof(m.val) - 1); m.val[sizeof(m.val) - 1] = 0;
-  if (xQueueSend(cmdQueue, &m, 0) != pdTRUE) Serial.println(F("[cmd] очередь команд переполнена"));
-}
+  if (xQueueSend(cmdQueue, &m, 0) != pdTRUE) Serial.println(F("[cmd] очередь команд переполнена"));}
 
 static void httpHandleCmd(WiFiClient& c, const char* query) {
   /* Разбираем параметры и раскладываем по очереди — применяет контур управления */
@@ -1344,6 +1661,14 @@ static void httpServe(WiFiClient& c) {
     httpSendHistory(c, win);
   } else if (!strcmp(path, "/api/scan")) {
     httpSendScan(c);
+  } else if (!strcmp(path, "/api/wifi")) {
+    httpHandleWifi(c, query);
+  } else if (!strcmp(path, "/api/scanwifi")) {
+    httpSendWifiScan(c);
+  } else if (!strcmp(path, "/api/updcheck")) {
+    httpOtaGithub(c, true);
+  } else if (!strcmp(path, "/api/updrun")) {
+    httpOtaGithub(c, false);
   } else if (!strcmp(path, "/api/cmd")) {
     httpHandleCmd(c, query);
   } else if (!strcmp(path, "/api/ota")) {

@@ -15,7 +15,7 @@
     on: '08:00', off: '20:00', noff: '23:00', nlen: 180, ramp: 40, days: 127,
     time: '14:23:05', date: '08.10.2026', wd: 4, tsrc: 'ntp',
     ip: '192.168.1.50', gw: '192.168.1.1', ssid: 'HomeWiFi', host: 'aquarium',
-    ap: 0, rssi: -58, nvm: 1, rstrt: 'включение питания',
+    ap: 0, rssi: -58, wssid: 'HomeWiFi', wst: 'ok', wcustom: 1, ogithub: 1, nvm: 1, rstrt: 'включение питания',
     reqs: 1284, cmds: 37, ota: 0, wd: 1, al: 0, altext: '',
     hist: 240, histmax: 5760, step: 15,
     cyc: [
@@ -63,6 +63,21 @@
     if (url.indexOf('/api/cmd') === 0) {
       apply(url.split('?')[1] || '');
       return Promise.resolve({ json: function () { return Promise.resolve({ ok: 1, applied: 1 }); } });
+    }
+    if (url.indexOf('/api/wifi') === 0) {
+      var q = url.split('?')[1] || '';
+      if (q.indexOf('forget') === 0) { S.wcustom = 0; S.wssid = 'ВАША_СЕТЬ_2.4ГГц'; S.wst = 'nosid'; }
+      else {
+        var m1 = q.match(/ssid=([^&]*)/), m2 = q.match(/pass=([^&]*)/);
+        S.wssid = m1 ? decodeURIComponent(m1[1]) : S.wssid;
+        S.wcustom = 1; S.wst = 'wait';
+        setTimeout(function () { S.wst = 'ok'; S.ssid = S.wssid; S.rssi = -47; S.ip = '192.168.1.51'; }, 4000);
+      }
+      return Promise.resolve({ json: function () { return Promise.resolve({ ok: 1 }); } });
+    }
+    if (url.indexOf('/api/scanwifi') === 0) {
+      var list = '-42|1|HomeWiFi\n-58|1|TP-LINK_A8F2\n-67|1|MTS_Router_5G\n-73|0|Guest\n-81|1|Ростелеком-2G';
+      return Promise.resolve({ text: function () { return Promise.resolve(list); } });
     }
     if (url.indexOf('/api/history') === 0) return Promise.resolve({ json: function () { return Promise.resolve(H); } });
     if (url.indexOf('/api/scan') === 0) return Promise.resolve({ json: function () { return Promise.resolve({ ok: 1, n: 2, water: 0, air: 1, dev: ['28FF64A1B2C3D4E5', '28FF9F0A1B2C3D4E6'] }); } });

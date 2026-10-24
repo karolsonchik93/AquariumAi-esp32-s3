@@ -8,7 +8,7 @@
 #pragma once
 
 #define FW_NAME      "Aquarium ESP32-S3"
-#define FW_VERSION   "2.0.1"     // 2.0.1 — совместимость с ядром ESP32 3.x (LEDC, watchdog, accept)
+#define FW_VERSION   "2.2.0"     // 2.2.0 — Wi-Fi со страницы, обновление с GitHub по кнопке
 
 /* ---------------------------------------------------------------------
    1. Wi-Fi
@@ -127,6 +127,17 @@
 #define ENABLE_MDNS          1        // http://aquarium.local
 #define ENABLE_SSE           1        // живая телеметрия без опроса (Server-Sent Events)
 #define ENABLE_WEB_OTA       1        // загрузка .bin прямо со страницы
+
+/* ---------------------------------------------------------------------
+   Обновление по кнопке из GitHub.
+   Плата скачивает этот файл и прошивается им — перепрошивать по проводу
+   больше не нужно. Свой .bin положите в репозиторий (папка build/prebuilt/)
+   и подставьте ссылку вида:
+     https://raw.githubusercontent.com/<логин>/<репозиторий>/main/build/prebuilt/aquarium_esp32s3.bin
+   --------------------------------------------------------------------- */
+#define ENABLE_GITHUB_OTA    1
+#define OTA_GITHUB_URL       "https://raw.githubusercontent.com/karolsonchik93/AquariumAi-esp32-s3/main/build/prebuilt/aquarium_esp32s3.bin"
+
 #define HISTORY_HOURS        24       // глубина истории, часов (хранится в PSRAM)
 #define HISTORY_PERIOD_S     15       // шаг записи, секунд
 #define HISTORY_MAX_POINTS   ((HISTORY_HOURS) * 3600 / (HISTORY_PERIOD_S))
