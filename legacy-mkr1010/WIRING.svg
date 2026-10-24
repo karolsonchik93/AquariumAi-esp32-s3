@@ -1,0 +1,167 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="940" viewBox="0 0 1240 940" font-family="Segoe UI, system-ui, sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7f8c9b"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#ff6b6b"/>
+    </marker>
+    <style>
+      .bg{fill:#0b0f14}
+      .box{fill:rgba(255,255,255,.045);stroke:rgba(255,255,255,.16);stroke-width:1.2;rx:12}
+      .box2{fill:rgba(0,224,255,.06);stroke:rgba(0,224,255,.35);stroke-width:1.2;rx:12}
+      .boxR{fill:rgba(255,90,60,.07);stroke:rgba(255,90,60,.4);stroke-width:1.2;rx:12}
+      .boxG{fill:rgba(37,208,122,.07);stroke:rgba(37,208,122,.4);stroke-width:1.2;rx:12}
+      .t{fill:#eaeff5;font-size:14px}
+      .tb{fill:#eaeff5;font-size:15px;font-weight:600}
+      .tm{fill:#8b97a5;font-size:12px}
+      .ts{fill:#8b97a5;font-size:11px}
+      .pin{fill:#00e0ff;font-size:12.5px;font-weight:600}
+      .hot{fill:#ff9f6b;font-size:12.5px;font-weight:600}
+      .gnd{fill:#5b7cff;font-size:12px}
+      .w{stroke:#7f8c9b;stroke-width:1.5;fill:none}
+      .w5{stroke:#ffb020;stroke-width:1.8;fill:none}
+      .wm{stroke:#ff6b6b;stroke-width:2;fill:none}
+      .h1{fill:#eaeff5;font-size:22px;font-weight:600}
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1240" height="940"/>
+  <text class="h1" x="34" y="44">Аквариумный контроллер на MKR WiFi 1010 — схема соединений</text>
+  <text class="tm" x="34" y="68">Логика платы 3.3 В · блок реле 5 В через преобразователи уровня · два DS18B20 на одной шине · ШИМ-диммирование светильника</text>
+
+  <!-- ================= ПИТАНИЕ ================= -->
+  <rect class="boxG" x="34" y="96" width="212" height="70"/>
+  <text class="tb" x="50" y="124">Блок питания 5 В, 2–3 А</text>
+  <text class="tm" x="50" y="146">питает плату и катушки реле</text>
+  <path class="w5" d="M 140 166 L 140 196" marker-end="url(#ar)"/>
+  <text class="ts" x="152" y="188">+5 В → VIN платы</text>
+  <path class="w5" d="M 246 132 L 700 132 L 700 176" marker-end="url(#ar)"/>
+  <text class="ts" x="256" y="126">+5 В → VCC блока реле</text>
+  <text class="ts" x="256" y="152">GND — общий для всех узлов</text>
+  <text class="ts" x="256" y="184">катушки реле не питать от 3V3 платы</text>
+
+  <!-- ================= ПЛАТА ================= -->
+  <rect class="box2" x="60" y="200" width="230" height="330"/>
+  <text class="tb" x="76" y="228">Arduino MKR WiFi 1010</text>
+  <text class="ts" x="76" y="246">3.3 В логика · Wi-Fi 2.4 ГГц</text>
+  <text class="pin" x="86" y="286">D0</text><text class="t" x="120" y="286">реле 1 — помпа</text>
+  <text class="pin" x="86" y="312">D1</text><text class="t" x="120" y="312">реле 2 — компрессор</text>
+  <text class="pin" x="86" y="338">D2</text><text class="t" x="120" y="338">реле 3 — вентилятор</text>
+  <text class="pin" x="86" y="364">D3</text><text class="t" x="120" y="364">реле 4 — подогреватель</text>
+  <text class="pin" x="86" y="400">D4</text><text class="t" x="120" y="400">ШИМ — светильник</text>
+  <text class="pin" x="86" y="426">D5</text><text class="t" x="120" y="426">свободен (резерв)</text>
+  <text class="pin" x="86" y="458">D7</text><text class="t" x="120" y="458">шина 1-Wire (DS18B20)</text>
+  <text class="gnd" x="86" y="492">3V3</text><text class="t" x="120" y="492">питание датчиков и LV</text>
+  <text class="gnd" x="86" y="514">GND</text><text class="t" x="120" y="514">общий провод</text>
+
+  <!-- ================= СДВИГ УРОВНЕЙ ================= -->
+  <rect class="box" x="470" y="200" width="150" height="130"/>
+  <text class="tb" x="484" y="226">Сдвиг уровня №1</text>
+  <text class="ts" x="484" y="244">LV = 3V3, HV = 5 В</text>
+  <text class="tm" x="484" y="270">канал 1 → IN1</text>
+  <text class="tm" x="484" y="290">канал 2 → IN2</text>
+  <text class="tm" x="484" y="310">канал 3 → IN3</text>
+  <text class="tm" x="484" y="330">канал 4 → IN4</text>
+  <path class="w" d="M 290 276 L 470 262" marker-end="url(#ar)"/>
+  <path class="w" d="M 290 302 L 470 282"/>
+  <path class="w" d="M 290 328 L 470 302"/>
+  <path class="w" d="M 290 354 L 470 322"/>
+
+  <rect class="box" x="470" y="356" width="150" height="106"/>
+  <text class="tb" x="484" y="382">Сдвиг уровня №2</text>
+  <text class="ts" x="484" y="400">нужен для 5 В драйверов</text>
+  <text class="tm" x="484" y="424">канал 1 → светильник (D4)</text>
+  <text class="tm" x="484" y="444">канал 2 → резерв</text>
+  <path class="w" d="M 290 390 L 470 400" marker-end="url(#ar)"/>
+  <path class="w" d="M 290 416 L 470 420"/>
+
+  <!-- ================= БЛОК РЕЛЕ ================= -->
+  <rect class="boxR" x="680" y="180" width="180" height="240"/>
+  <text class="tb" x="694" y="206">Блок реле 4 канала</text>
+  <text class="ts" x="694" y="224">5 В, с оптопарой,</text>
+  <text class="ts" x="694" y="240">активный низкий уровень</text>
+  <text class="tm" x="694" y="268">IN1 · COM1/NO1</text>
+  <text class="tm" x="694" y="294">IN2 · COM2/NO2</text>
+  <text class="tm" x="694" y="320">IN3 · COM3/NO3</text>
+  <text class="tm" x="694" y="346">IN4 · COM4/NO4</text>
+  <text class="ts" x="694" y="380">VCC → +5 В</text>
+  <text class="ts" x="694" y="398">GND → общий</text>
+
+  <path class="w" d="M 620 262 L 680 264" marker-end="url(#ar)"/>
+  <path class="w" d="M 620 282 L 680 290"/>
+  <path class="w" d="M 620 302 L 680 316"/>
+  <path class="w" d="M 620 322 L 680 342"/>
+
+  <!-- ================= НАГРУЗКИ ================= -->
+  <rect class="box" x="920" y="176" width="286" height="54"/>
+  <text class="tb" x="936" y="200">Реле 1 → помпа</text>
+  <text class="ts" x="936" y="219">COM1–NO1 в разрыв питающего провода</text>
+
+  <rect class="box" x="920" y="240" width="286" height="54"/>
+  <text class="tb" x="936" y="264">Реле 2 → компрессор / аэратор</text>
+  <text class="ts" x="936" y="283">индуктивная нагрузка: RC-цепочка полезна</text>
+
+  <rect class="box" x="920" y="304" width="286" height="54"/>
+  <text class="tb" x="936" y="328">Реле 3 → вентилятор охлаждения</text>
+  <text class="ts" x="936" y="347">включается автоматически выше порога</text>
+
+  <rect class="boxR" x="920" y="368" width="286" height="72"/>
+  <text class="tb" x="936" y="392">Реле 4 → подогреватель 75 Вт</text>
+  <text class="ts" x="936" y="411">230 В · ≈0.33 А · через предохранитель</text>
+  <text class="hot" x="936" y="430">и биметаллический термостат 30 °C</text>
+
+  <path class="w" d="M 860 216 L 920 203" marker-end="url(#ar)"/>
+  <path class="w" d="M 860 268 L 920 267" marker-end="url(#ar)"/>
+  <path class="w" d="M 860 320 L 920 331" marker-end="url(#ar)"/>
+  <path class="wm" d="M 860 380 L 920 404" marker-end="url(#arR)"/>
+
+  <!-- ================= СВЕТ ================= -->
+  <rect class="box" x="680" y="450" width="230" height="112"/>
+  <text class="tb" x="694" y="476">Драйвер светодиодов</text>
+  <text class="ts" x="694" y="496">Mean Well LDD (1 шт.)</text>
+  <text class="ts" x="694" y="514">или логический MOSFET</text>
+  <text class="ts" x="694" y="532">AO3400A / IRLZ44N</text>
+  <text class="ts" x="694" y="552">PWM/DIM понимает 3.3 В</text>
+  <path class="w" d="M 620 400 L 660 400 L 660 500 L 680 500" marker-end="url(#ar)"/>
+
+  <rect class="box" x="960" y="466" width="246" height="80"/>
+  <text class="tb" x="976" y="492">Светодиодный светильник</text>
+  <text class="tm" x="976" y="512">один канал яркости — D4</text>
+  <text class="tm" x="976" y="532">рассвет · день · закат · ночник, ШИМ 732 Гц</text>
+  <path class="w" d="M 910 506 L 960 506" marker-end="url(#ar)"/>
+
+  <!-- ================= ДАТЧИКИ ================= -->
+  <rect class="box" x="34" y="580" width="420" height="150"/>
+  <text class="tb" x="50" y="606">Два DS18B20 на одной шине</text>
+  <text class="tm" x="50" y="628">VDD → 3V3, GND → GND, DQ → D7</text>
+  <path class="w" d="M 70 646 L 430 646"/>
+  <text class="pin" x="50" y="668">D7</text>
+  <text class="gnd" x="50" y="694">3V3</text><path class="w" d="M 85 690 L 250 690"/>
+  <circle cx="250" cy="646" r="4" fill="#00e0ff"/>
+  <text class="tm" x="180" y="636">4.7 кОм</text>
+  <path class="w" d="M 250 646 L 250 690"/>
+  <circle cx="330" cy="646" r="4" fill="#ffb020"/><text class="tm" x="300" y="672">DS18B20 №1 — вода</text>
+  <circle cx="410" cy="646" r="4" fill="#ffb020"/><text class="tm" x="300" y="712">DS18B20 №2 — воздух</text>
+  <path class="w" d="M 330 646 L 330 690"/><path class="w" d="M 410 646 L 410 690"/>
+
+  <!-- ================= СЕТЬ 230 В ================= -->
+  <rect class="boxR" x="480" y="580" width="726" height="150"/>
+  <text class="tb" x="496" y="606">Цепь 230 В подогревателя</text>
+  <text class="tm" x="496" y="630">фаза → предохранитель 1 А → COM4 → NO4 → термостат 30 °C → нагреватель 75 Вт → ноль</text>
+  <rect class="boxR" x="496" y="646" width="86" height="34"/><text class="tm" x="508" y="668">1 А</text>
+  <rect class="boxR" x="598" y="646" width="120" height="34"/><text class="tm" x="610" y="668">COM4/NO4</text>
+  <rect class="boxR" x="734" y="646" width="150" height="34"/><text class="tm" x="746" y="668">термостат 30 °C</text>
+  <rect class="boxR" x="900" y="646" width="150" height="34"/><text class="tm" x="912" y="668">нагреватель 75 Вт</text>
+  <path class="wm" d="M 582 663 L 598 663" marker-end="url(#arR)"/>
+  <path class="wm" d="M 718 663 L 734 663" marker-end="url(#arR)"/>
+  <path class="wm" d="M 884 663 L 900 663" marker-end="url(#arR)"/>
+  <text class="hot" x="496" y="700">Никогда не коммутируйте 230 В макетными проводами — только клеммники в закрытом корпусе.</text>
+  <text class="hot" x="496" y="718">Независимая защита от залипания реле (биметаллический термостат) обязательна.</text>
+
+  <!-- ================= ПОДПИСИ ВНИЗУ ================= -->
+  <text class="ts" x="34" y="766">ШИМ-выводы SAMD21: D0…D7 (D6 — встроенный светодиод, не занимать), D10, A3, A4. 1-Wire на D7 внешнего прерывания не требует.</text>
+  <text class="ts" x="34" y="788">Свободны: D9, D11/D12 (I²C), D13/D14 (Serial1), A0…A6 — под датчик уровня воды, pH, кнопки.</text>
+  <text class="ts" x="34" y="816">Настройка пинов и параметров — в config.h. Подробности и порядок проверки — в WIRING.md.</text>
+  <text class="ts" x="34" y="846">Проверено компиляцией под arduino:samd 1.8.14 (MKR WiFi 1010): RAM 23 %, Flash 36.5 %.</text>
+</svg>

@@ -1,0 +1,951 @@
+/* =====================================================================
+   webui.h — живой веб-интерфейс аквариумного контроллера на ESP32-S3.
+   Страница целиком лежит во флеш-памяти платы: ни CDN, ни интернета
+   браузеру не нужно. Телеметрия приходит по Server-Sent Events —
+   интерфейс обновляется мгновенно, без опроса.
+   ===================================================================== */
+#pragma once
+
+static const char INDEX_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#04070d">
+<title>Аквариум · ESP32-S3</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#04070d;--panel:rgba(255,255,255,.045);--panel2:rgba(255,255,255,.075);
+  --line:rgba(255,255,255,.09);--fg:#e8eef6;--dim:#8b9bad;--mute:#4d5b6b;
+  --accent:#00e5ff;--accent-rgb:0,229,255;--ok:#22d37f;--warn:#ffb020;--danger:#ff4d5e;
+  --water:#0a2a4a;--radius:18px;--glass:blur(14px) saturate(140%);
+}
+body[data-phase="dawn"]{--accent:#ffa63d;--accent-rgb:255,166,61}
+body[data-phase="day"]{--accent:#00e5ff;--accent-rgb:0,229,255}
+body[data-phase="dusk"]{--accent:#b06bff;--accent-rgb:176,107,255}
+body[data-phase="night"]{--accent:#5b7cff;--accent-rgb:91,124,255}
+body[data-phase="manual"]{--accent:#4be3a1;--accent-rgb:75,227,161}
+body.alert{--accent:#ff4d5e;--accent-rgb:255,77,94}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{background:var(--bg);color:var(--fg);min-height:100vh;overflow-x:hidden;
+  font:15px/1.5 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+  padding:16px 14px 48px;transition:background 1.2s ease}
+/* аврора на фоне: медленно плывущие цветные пятна */
+.aurora{position:fixed;inset:-20% -20%;z-index:0;pointer-events:none;filter:blur(70px);opacity:.55;
+  background:
+    radial-gradient(38% 45% at 22% 18%,rgba(var(--accent-rgb),.30),transparent 70%),
+    radial-gradient(32% 40% at 78% 26%,rgba(91,124,255,.24),transparent 70%),
+    radial-gradient(45% 50% at 55% 88%,rgba(0,120,180,.26),transparent 72%);
+  animation:drift 26s ease-in-out infinite alternate;transition:background 1.5s ease}
+@keyframes drift{0%{transform:translate3d(-2%,-1%,0) scale(1)}50%{transform:translate3d(2%,2%,0) scale(1.06)}100%{transform:translate3d(-1%,3%,0) scale(1.02)}}
+.wrap{position:relative;z-index:1;max-width:1120px;margin:0 auto}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:4px 2px 16px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:13px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 16px var(--accent);
+  animation:breathe 2.6s ease-in-out infinite;transition:background .8s,box-shadow .8s}
+@keyframes breathe{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.86)}}
+.hud{display:flex;align-items:center;gap:14px;font-size:13px;color:var(--dim);flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;
+  background:var(--panel);border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.clock{color:var(--fg);font-weight:600}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:18px;margin-bottom:16px;backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
+  box-shadow:0 18px 40px -28px rgba(0,0,0,.9);transition:transform .25s ease,border-color .25s ease}
+.card:hover{border-color:rgba(var(--accent-rgb),.28)}
+.card h2{font-size:13px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#c9d5e3}
+.head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.note{color:var(--dim);font-size:12.5px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}
+.grid .card{margin-bottom:0}
+.wide{grid-column:1/-1}
+
+/* ══════════ АКВАРИУМ ══════════ */
+.hero{display:grid;grid-template-columns:1fr;gap:18px}
+@media(min-width:900px){.hero{grid-template-columns:1.45fr .9fr}}
+.tank{position:relative;height:300px;border-radius:22px;overflow:hidden;
+  background:linear-gradient(180deg,#061423 0%,#04101c 55%,#020a12 100%);
+  border:1px solid rgba(var(--accent-rgb),.22);box-shadow:inset 0 0 60px rgba(0,0,0,.7),0 0 40px -18px rgba(var(--accent-rgb),.5)}
+.lamp{position:absolute;top:0;left:8%;right:8%;height:8px;border-radius:0 0 8px 8px;background:rgba(255,255,255,.08)}
+.lamp i{display:block;height:100%;width:var(--led,0%);max-width:100%;border-radius:0 0 8px 8px;
+  background:linear-gradient(90deg,rgba(var(--accent-rgb),.5),var(--accent));transition:width .8s ease}
+.bloom{position:absolute;top:0;left:0;right:0;height:150px;pointer-events:none;opacity:var(--led-o,0);
+  background:radial-gradient(60% 100% at 50% 0,rgba(var(--accent-rgb),.5),transparent 72%);transition:opacity .8s ease}
+.water{position:absolute;left:0;right:0;bottom:0;height:78%;
+  background:linear-gradient(180deg,rgba(0,180,255,.16),rgba(0,60,120,.42) 60%,rgba(0,30,70,.6));
+  transition:height .6s ease}
+.waves{position:absolute;left:-50%;right:-50%;top:20.5%;height:26px;overflow:visible}
+.waves path{fill:rgba(120,220,255,.16)}
+.waves .w2{fill:rgba(120,220,255,.09)}
+.waves .w1{animation:waveMove 9s linear infinite}
+.waves .w2{animation:waveMove 14s linear infinite reverse}
+@keyframes waveMove{from{transform:translateX(0)}to{transform:translateX(25%)}}
+.bubbles{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .6s ease}
+body.air-on .bubbles{opacity:1}
+.bubbles i{position:absolute;bottom:6%;width:7px;height:7px;border-radius:50%;
+  background:radial-gradient(circle at 30% 30%,#fff,rgba(160,230,255,.35));opacity:.75;
+  animation:rise linear infinite}
+@keyframes rise{0%{transform:translateY(0) scale(.6);opacity:0}
+  12%{opacity:.85}100%{transform:translateY(-215px) scale(1.15);opacity:0}}
+.fish{position:absolute;top:46%;left:6%;width:64px;height:auto;opacity:.5;
+  animation:swim 24s ease-in-out infinite;filter:drop-shadow(0 6px 12px rgba(0,0,0,.6))}
+@keyframes swim{0%{transform:translate(0,0) scaleX(1)}45%{transform:translate(360px,-18px) scaleX(1)}
+  50%{transform:translate(380px,-18px) scaleX(-1)}95%{transform:translate(10px,12px) scaleX(-1)}
+  100%{transform:translate(0,0) scaleX(1)}}
+.impeller{position:absolute;left:9%;bottom:12%;width:44px;height:44px}
+.impeller .blades{transform-origin:50% 50%;animation:spin 2.6s linear infinite;animation-play-state:paused}
+body.pump-on .impeller .blades{animation-play-state:running}
+@keyframes spin{to{transform:rotate(360deg)}}
+.fan{position:absolute;right:8%;top:8%;width:40px;height:40px;opacity:.45}
+.fan .blades{transform-origin:50% 50%;animation:spin 1s linear infinite;animation-play-state:paused}
+body.fan-on .fan{opacity:1}
+body.fan-on .fan .blades{animation-play-state:running}
+.heater{position:absolute;right:12%;bottom:10%;width:14px;height:64px;border-radius:7px;
+  background:rgba(255,255,255,.09);overflow:hidden}
+.heater i{display:block;position:absolute;inset:0;background:linear-gradient(180deg,#ff7a3c,#ff3d00);
+  opacity:0;transition:opacity .5s ease}
+body.heat-on .heater i{opacity:1;animation:heatPulse 1.6s ease-in-out infinite}
+@keyframes heatPulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.6)}}
+.heatwaves{position:absolute;right:9%;bottom:26%;width:20px;height:70px;pointer-events:none;opacity:0}
+body.heat-on .heatwaves{opacity:1}
+.heatwaves i{position:absolute;left:50%;width:3px;height:22px;border-radius:2px;margin-left:-1.5px;
+  background:linear-gradient(180deg,rgba(255,140,60,0),rgba(255,140,60,.85),rgba(255,140,60,0));
+  animation:heatUp 2.4s linear infinite}
+@keyframes heatUp{0%{transform:translateY(18px) scaleY(.6);opacity:0}30%{opacity:.9}100%{transform:translateY(-46px) scaleY(1.1);opacity:0}}
+.readout{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;
+  padding:22px 30px;border-radius:50%}
+.readout::before{content:'';position:absolute;inset:-10%;border-radius:50%;z-index:-1;
+  background:radial-gradient(closest-side,rgba(2,10,20,.72),transparent 72%)}
+.readout .big{font-size:60px;font-weight:200;letter-spacing:-.04em;font-variant-numeric:tabular-nums;
+  text-shadow:0 0 40px rgba(var(--accent-rgb),.45),0 2px 18px rgba(0,0,0,.85)}
+.readout .big b{font-weight:200}
+.readout .big span{font-size:22px;color:var(--dim);margin-left:4px}
+.readout .sub{margin-top:2px;font-size:11.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--accent)}
+.readout .tiny{margin-top:6px;font-size:12px;color:var(--mute)}
+.ringwrap{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:210px;height:210px;pointer-events:none}
+.ringwrap svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring-bg{fill:none;stroke:rgba(255,255,255,.07);stroke-width:3}
+.ring-fg{fill:none;stroke:var(--accent);stroke-width:3.5;stroke-linecap:round;
+  stroke-dasharray:596.9;stroke-dashoffset:596.9;transition:stroke-dashoffset .8s cubic-bezier(.3,0,.2,1),stroke .8s;
+  filter:drop-shadow(0 0 10px rgba(var(--accent-rgb),.6))}
+.ring-band{fill:none;stroke:rgba(34,211,127,.35);stroke-width:10;stroke-dasharray:4 6}
+body.heating .ring-fg{animation:ringPulse 1.8s ease-in-out infinite}
+@keyframes ringPulse{0%,100%{opacity:1}50%{opacity:.45}}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+.tile{background:var(--panel2);border-radius:14px;padding:11px 13px;border:1px solid var(--line)}
+.tile .k{display:block;color:var(--dim);font-size:11.5px;letter-spacing:.02em}
+.tile .v{font-size:19px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.stats .tile .v{font-size:17px}
+.tile.small .v{font-size:14px;white-space:normal;word-break:break-word}
+.flash{animation:flash .9s ease-out}
+@keyframes flash{0%{background:rgba(var(--accent-rgb),.4)}100%{background:transparent}}
+/* ══════════ СУТОЧНАЯ ПОЛОСА ══════════ */
+.daybar{position:relative;height:52px;border-radius:14px;background:rgba(255,255,255,.045);
+  border:1px solid var(--line);overflow:hidden}
+.daybar .seg{position:absolute;top:0;bottom:0;display:flex;align-items:center;justify-content:center;
+  font-size:10.5px;letter-spacing:.06em;color:#dbe6f2;white-space:nowrap;overflow:hidden}
+.seg.dawn{background:linear-gradient(90deg,rgba(255,166,61,.45),rgba(255,214,120,.35))}
+.seg.day{background:linear-gradient(90deg,rgba(0,229,255,.28),rgba(0,229,255,.34))}
+.seg.dusk{background:linear-gradient(90deg,rgba(176,107,255,.38),rgba(120,80,255,.42))}
+.seg.night{background:linear-gradient(90deg,rgba(91,124,255,.30),rgba(60,90,220,.30))}
+.seg.dark{background:rgba(255,255,255,.03)}
+.now{position:absolute;top:-1px;bottom:-1px;width:2px;background:var(--accent);
+  box-shadow:0 0 14px 2px rgba(var(--accent-rgb),.8);transition:left 1s linear}
+.now::after{content:'';position:absolute;top:-3px;left:-3px;width:8px;height:8px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 12px var(--accent)}
+/* ══════════ ПЕРЕКЛЮЧАТЕЛИ ══════════ */
+.relay{display:flex;flex-direction:column;gap:12px}
+.relay .head{margin-bottom:0}
+.relay .icon{width:52px;height:52px;flex:0 0 auto}
+.pill{font-size:11px;font-weight:700;letter-spacing:.09em;padding:5px 11px;border-radius:999px;
+  background:rgba(255,255,255,.07);color:var(--dim);border:1px solid var(--line);white-space:nowrap;transition:.3s}
+.pill.on{background:rgba(34,211,127,.16);color:#67eaa5;border-color:rgba(34,211,127,.4);
+  animation:pillGlow 2.6s ease-in-out infinite}
+.pill.hot{background:rgba(255,120,60,.18);color:#ffa878;border-color:rgba(255,120,60,.45);
+  animation:hotGlow 1.9s ease-in-out infinite}
+.pill.err{background:rgba(255,77,94,.18);color:#ff9099;border-color:rgba(255,77,94,.45)}
+@keyframes pillGlow{0%,100%{box-shadow:0 0 0 rgba(34,211,127,0)}50%{box-shadow:0 0 16px rgba(34,211,127,.45)}}
+@keyframes hotGlow{0%,100%{box-shadow:0 0 0 rgba(255,120,60,0)}50%{box-shadow:0 0 18px rgba(255,120,60,.5)}}
+.switch{position:relative;width:70px;height:38px;border-radius:999px;border:1px solid var(--line);
+  background:rgba(255,255,255,.06);cursor:pointer;transition:.3s;flex:0 0 auto}
+.switch::after{content:'';position:absolute;top:3px;left:3px;width:30px;height:30px;border-radius:50%;
+  background:#8b9bad;transition:transform .32s cubic-bezier(.3,1.4,.4,1),background .3s}
+.switch.on{background:rgba(34,211,127,.22);border-color:rgba(34,211,127,.5)}
+.switch.on::after{transform:translateX(32px);background:#22d37f;box-shadow:0 0 14px #22d37f}
+.switch.hot{background:rgba(255,120,60,.22);border-color:rgba(255,120,60,.55)}
+.switch.hot::after{transform:translateX(32px);background:#ff7a3c;box-shadow:0 0 14px #ff7a3c}
+.switch:active::after{width:34px}
+/* ══════════ КНОПКИ И ПОЛЯ ══════════ */
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.row+.row{margin-top:12px}
+.btn{position:relative;overflow:hidden;appearance:none;border:1px solid var(--line);background:var(--panel2);
+  color:var(--fg);font:inherit;font-size:13.5px;padding:10px 15px;border-radius:12px;cursor:pointer;
+  transition:transform .12s ease,background .2s,border-color .2s}
+.btn:hover{background:rgba(255,255,255,.13)}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:rgba(var(--accent-rgb),.18);border-color:rgba(var(--accent-rgb),.45);color:var(--accent)}
+.btn.ghost{background:transparent;color:var(--dim)}
+.btn.danger{border-color:rgba(255,77,94,.4);color:#ff9099}
+.btn .rip{position:absolute;border-radius:50%;transform:scale(0);background:rgba(255,255,255,.35);
+  animation:ripple .6s ease-out;pointer-events:none}
+@keyframes ripple{to{transform:scale(4);opacity:0}}
+.seg-ctl{display:inline-flex;background:rgba(255,255,255,.05);border:1px solid var(--line);
+  border-radius:12px;padding:4px;gap:4px}
+.seg-ctl button{appearance:none;border:0;background:transparent;color:var(--dim);font:inherit;font-size:13px;
+  padding:8px 14px;border-radius:9px;cursor:pointer;transition:.2s}
+.seg-ctl button.on{background:rgba(var(--accent-rgb),.2);color:var(--accent);box-shadow:0 0 16px -6px rgba(var(--accent-rgb),.8)}
+label.f{display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--dim)}
+input[type=number],input[type=time]{background:#080f18;border:1px solid var(--line);color:var(--fg);
+  border-radius:10px;padding:8px 10px;font:inherit;font-size:13.5px;width:112px;font-variant-numeric:tabular-nums}
+input[type=time]{width:118px}
+input:focus{outline:1px solid rgba(var(--accent-rgb),.6);border-color:transparent}
+.days{display:flex;gap:7px;flex-wrap:wrap}
+.day{border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:10px;
+  padding:8px 12px;font:inherit;font-size:12.5px;cursor:pointer;transition:.2s}
+.day.on{background:rgba(var(--accent-rgb),.18);border-color:rgba(var(--accent-rgb),.5);color:var(--accent)}
+.sl{display:flex;align-items:center;gap:12px;margin-top:10px;font-size:12.5px;color:var(--dim)}
+.sl>span{width:86px;flex:0 0 auto}
+.sl>b{width:52px;text-align:right;color:var(--fg);font-variant-numeric:tabular-nums;font-weight:600}
+input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:6px;border-radius:4px;outline:none;
+  background:linear-gradient(90deg,rgba(var(--accent-rgb),.85) var(--p,0%),rgba(255,255,255,.12) var(--p,0%))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+  background:#fff;box-shadow:0 0 12px rgba(var(--accent-rgb),.9);cursor:pointer;transition:transform .15s}
+input[type=range]::-webkit-slider-thumb:active{transform:scale(1.15)}
+input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radius:50%;background:#fff;cursor:pointer}
+.bar{height:8px;border-radius:5px;background:rgba(255,255,255,.09);overflow:hidden;margin-top:12px}
+.bar>i{display:block;height:100%;width:0;border-radius:5px;background:linear-gradient(90deg,rgba(var(--accent-rgb),.5),var(--accent));
+  transition:width .7s cubic-bezier(.3,0,.2,1);box-shadow:0 0 14px rgba(var(--accent-rgb),.55)}
+canvas{width:100%;display:block;border-radius:14px;cursor:crosshair}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:var(--dim)}
+.legend i{display:inline-block;width:16px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:10px}
+.bars{display:inline-flex;gap:3px;align-items:flex-end;height:14px;vertical-align:middle}
+.bars i{width:4px;background:var(--ok);border-radius:2px;transition:height .4s ease}
+.table{font-size:12.5px}
+.tr{display:grid;grid-template-columns:34px 58px 1fr 1fr 1fr 1fr;gap:6px;padding:8px 6px;border-bottom:1px solid var(--line);
+  font-variant-numeric:tabular-nums}
+.tr.head{color:var(--mute);font-size:11px;letter-spacing:.05em;text-transform:uppercase}
+.tr:last-child{border-bottom:0}
+.empty{color:var(--mute);font-size:12.5px;padding:10px 4px}
+/* ══════════ OTA ══════════ */
+.drop{border:1.5px dashed rgba(var(--accent-rgb),.4);border-radius:14px;padding:18px;text-align:center;
+  color:var(--dim);font-size:13px;cursor:pointer;transition:.25s;background:rgba(var(--accent-rgb),.04)}
+.drop:hover,.drop.over{background:rgba(var(--accent-rgb),.12);border-color:var(--accent);color:var(--fg)}
+.prog{height:8px;border-radius:5px;background:rgba(255,255,255,.1);margin-top:12px;overflow:hidden;display:none}
+.prog.show{display:block}
+.prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),#fff);
+  transition:width .3s ease;animation:shimmer 1.4s linear infinite}
+@keyframes shimmer{0%{filter:brightness(.9)}50%{filter:brightness(1.35)}100%{filter:brightness(.9)}}
+/* ══════════ УВЕДОМЛЕНИЯ И СВЯЗЬ ══════════ */
+.toasts{position:fixed;top:14px;right:14px;z-index:60;display:flex;flex-direction:column;gap:8px;max-width:320px}
+.toast{background:rgba(10,16,24,.94);border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:12px;padding:11px 14px;font-size:13px;box-shadow:0 16px 40px -20px #000;
+  animation:slideIn .35s cubic-bezier(.2,1,.3,1);backdrop-filter:var(--glass)}
+.toast.ok{border-left-color:var(--ok)}
+.toast.err{border-left-color:var(--danger)}
+@keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+.offline{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;
+  background:rgba(2,5,10,.86);backdrop-filter:blur(6px);text-align:center;padding:24px}
+.offline.show{display:flex}
+.offline .box{max-width:380px}
+.pulse{width:56px;height:56px;margin:0 auto 18px;border-radius:50%;border:2px solid var(--accent);
+  animation:offPulse 1.6s ease-out infinite}
+@keyframes offPulse{0%{transform:scale(.7);opacity:1}100%{transform:scale(1.35);opacity:0}}
+footer{color:var(--mute);font-size:12px;text-align:center;margin-top:22px;line-height:1.8}
+body.night .aurora{opacity:.32}
+body.night .card{background:rgba(255,255,255,.03)}
+@media(max-width:560px){.readout .big{font-size:48px}.ringwrap{width:180px;height:180px}.tank{height:250px}}
+</style>
+</head>
+<body data-phase="day">
+<div class="aurora"></div>
+
+<div class="toasts" id="toasts"></div>
+<div class="offline" id="offline"><div class="box">
+  <div class="pulse"></div>
+  <h2 style="font-size:16px;letter-spacing:.1em">НЕТ СВЯЗИ С ПЛАТОЙ</h2>
+  <p class="note" style="margin-top:10px">Плата перезагружается или пропала сеть. Переподключаюсь автоматически…</p>
+  <p class="note" id="offTimer" style="margin-top:8px">—</p>
+</div></div>
+
+<div class="wrap">
+<header>
+  <div class="brand"><span class="dot"></span><span id="devname">Аквариум</span></div>
+  <div class="hud">
+    <span class="chip" id="netChip"><span id="netText">подключение…</span></span>
+    <span class="chip"><span class="clock" id="clock">--:--:--</span></span>
+  </div>
+</header>
+
+<!-- ═══════════ АКВАРИУМ ═══════════ -->
+<section class="card">
+  <div class="head">
+    <h2>Аквариум</h2>
+    <span class="note" id="phaseNote">—</span>
+  </div>
+  <div class="hero">
+    <div>
+      <div class="tank">
+        <div class="lamp"><i id="lampFill"></i></div>
+        <div class="bloom" id="bloom"></div>
+        <div class="water" id="waterCol"></div>
+        <svg class="waves" viewBox="0 0 1200 26" preserveAspectRatio="none">
+          <path class="w1" d="M0,14 Q75,0 150,14 T300,14 T450,14 T600,14 T750,14 T900,14 T1050,14 T1200,14 L1200,26 L0,26 Z"/>
+          <path class="w2" d="M0,16 Q75,4 150,16 T300,16 T450,16 T600,16 T750,16 T900,16 T1050,16 T1200,16 L1200,26 L0,26 Z"/>
+        </svg>
+        <div class="bubbles" id="bubbles"></div>
+        <svg class="fish" viewBox="0 0 100 46">
+          <path d="M6 23c14-14 42-16 60-6 6-6 16-9 26-8-6 5-9 10-9 14s3 9 9 14c-10 1-20-2-26-8-18 10-46 8-60-6z" fill="#8fd4ff" opacity=".85"/>
+          <circle cx="26" cy="20" r="2.6" fill="#0a2030"/>
+        </svg>
+        <div class="impeller" title="Помпа">
+          <svg viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="21" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="2"/>
+            <g class="blades">
+              <path d="M24 24 L24 6 A18 18 0 0 1 40 18 Z" fill="rgba(120,220,255,.75)"/>
+              <path d="M24 24 L42 24 A18 18 0 0 1 30 40 Z" fill="rgba(120,220,255,.55)"/>
+              <path d="M24 24 L24 42 A18 18 0 0 1 8 30 Z" fill="rgba(120,220,255,.45)"/>
+              <path d="M24 24 L6 24 A18 18 0 0 1 18 8 Z" fill="rgba(120,220,255,.6)"/>
+            </g>
+            <circle cx="24" cy="24" r="4.5" fill="#0b2233"/>
+          </svg>
+        </div>
+        <div class="fan" title="Вентилятор">
+          <svg viewBox="0 0 48 48"><g class="blades">
+            <path d="M24 24 C14 14 8 16 8 22 C8 28 16 28 24 24Z" fill="rgba(160,210,255,.85)"/>
+            <path d="M24 24 C34 14 40 16 40 22 C40 28 32 28 24 24Z" fill="rgba(160,210,255,.7)"/>
+            <path d="M24 24 C14 34 16 40 22 40 C28 40 28 32 24 24Z" fill="rgba(160,210,255,.6)"/>
+            <path d="M24 24 C34 34 32 40 26 40 C20 40 20 32 24 24Z" fill="rgba(160,210,255,.5)"/>
+          </g><circle cx="24" cy="24" r="3.4" fill="#0b2233"/></svg>
+        </div>
+        <div class="heatwaves" id="heatwaves"></div>
+        <div class="heater" title="Подогреватель"><i></i></div>
+        <div class="ringwrap">
+          <svg viewBox="0 0 220 220">
+            <circle class="ring-bg" cx="110" cy="110" r="95"/>
+            <circle class="ring-band" id="ringBand" cx="110" cy="110" r="95"/>
+            <circle class="ring-fg" id="ring" cx="110" cy="110" r="95"/>
+          </svg>
+        </div>
+        <div class="readout">
+          <div class="big"><b id="tempVal">--</b><span>°C</span></div>
+          <div class="sub" id="tempSub">—</div>
+          <div class="tiny" id="tempTiny">вода · DS18B20</div>
+        </div>
+      </div>
+      <div class="daybar" id="daybar" style="margin-top:14px"><div class="now" id="nowMark" style="left:0%"></div></div>
+    </div>
+
+    <div class="stats" id="heroStats"></div>
+  </div>
+</section>
+
+<!-- ═══════════ УПРАВЛЕНИЕ ═══════════ -->
+<section class="grid">
+  <div class="card relay">
+    <div class="head"><h2>Помпа</h2><span class="pill" id="p-pump">—</span></div>
+    <p class="note">Реле 1 · фильтрация и перемешивание воды</p>
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div class="switch" id="sw-pump" onclick="tgl('pump')"></div>
+      <span class="note">GPIO4</span>
+    </div>
+  </div>
+
+  <div class="card relay">
+    <div class="head"><h2>Компрессор</h2><span class="pill" id="p-air">—</span></div>
+    <p class="note">Реле 2 · аэрация аквариума</p>
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div class="switch" id="sw-air" onclick="tgl('air')"></div>
+      <span class="note">GPIO5</span>
+    </div>
+  </div>
+
+  <div class="card relay">
+    <div class="head"><h2>Вентилятор</h2><span class="pill" id="p-fan">—</span></div>
+    <p class="note">Реле 3 · охлаждение при перегреве</p>
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div class="switch" id="sw-fan" onclick="tgl('fan')"></div>
+      <span class="note">GPIO6</span>
+    </div>
+    <div class="row">
+      <label class="f">Включать выше, °C<input type="number" id="fanon" step="0.1" min="15" max="40"></label>
+      <label class="f">Гистерезис<input type="number" id="fanhy" step="0.1" min="0.1" max="2"></label>
+      <button class="btn primary" onclick="applyFan()">Применить</button>
+      <button class="btn ghost" onclick="cmd('fanauto=1','вентилятор в авто')">Авто</button>
+    </div>
+  </div>
+
+  <div class="card relay">
+    <div class="head"><h2>Подогреватель</h2><span class="pill" id="p-heat">—</span></div>
+    <p class="note">Реле 4 · термостат держит температуру сам</p>
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div class="switch" id="sw-heat" onclick="tgl('heat')"></div>
+      <span class="note">GPIO7</span>
+    </div>
+    <div class="row">
+      <button class="btn" onclick="cmd('heat=1','нагрев на 15 минут')">Нагрев 15 мин</button>
+      <button class="btn ghost" onclick="cmd('heatauto=1','нагрев в авто')">Авто</button>
+    </div>
+  </div>
+
+  <!-- термостат -->
+  <div class="card wide">
+    <div class="head"><h2>Термостат</h2><span class="note" id="thermoNote">—</span></div>
+    <div class="row" style="align-items:center;gap:26px">
+      <svg width="220" height="130" viewBox="0 0 220 130" id="gauge" style="flex:0 0 auto">
+        <defs>
+          <linearGradient id="gg" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#3d8bff"/><stop offset=".5" stop-color="var(--accent)"/><stop offset="1" stop-color="#ff7a3c"/>
+          </linearGradient>
+        </defs>
+        <path d="M20 116 A90 90 0 0 1 200 116" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="12" stroke-linecap="round"/>
+        <path id="gaugeBand" d="M20 116 A90 90 0 0 1 200 116" fill="none" stroke="rgba(34,211,127,.35)" stroke-width="12" stroke-linecap="butt"/>
+        <path id="gaugeVal" d="M20 116 A90 90 0 0 1 200 116" fill="none" stroke="url(#gg)" stroke-width="12" stroke-linecap="round"/>
+        <line id="needle" x1="110" y1="116" x2="110" y2="40" stroke="#fff" stroke-width="2.6" stroke-linecap="round" style="transform-origin:110px 116px;transition:transform .6s cubic-bezier(.3,0,.2,1)"/>
+        <circle cx="110" cy="116" r="6" fill="#fff"/>
+        <text id="gaugeText" x="110" y="92" text-anchor="middle" fill="#e8eef6" font-size="26" font-weight="300">--</text>
+        <text x="20" y="128" fill="#4d5b6b" font-size="10">15°</text>
+        <text x="196" y="128" fill="#4d5b6b" font-size="10">35°</text>
+      </svg>
+      <div style="flex:1 1 300px">
+        <div class="row">
+          <label class="f">Уставка, °C<input type="number" id="sp" step="0.1" min="15" max="35"></label>
+          <label class="f">Гистерезис, °C<input type="number" id="hy" step="0.1" min="0.1" max="2"></label>
+          <label class="f">Аварийный порог<input type="number" id="maxt" step="0.5" min="20" max="40"></label>
+          <label class="f">Мощность, Вт<input type="number" id="pw" step="5" min="5" max="500"></label>
+          <button class="btn primary" onclick="applyHeat()">Применить</button>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn" onclick="bumpSet(-0.1)">−0.1</button>
+          <button class="btn" onclick="bumpSet(0.1)">+0.1</button>
+          <button class="btn ghost" onclick="bumpSet(-0.5)">−0.5</button>
+          <button class="btn ghost" onclick="bumpSet(0.5)">+0.5</button>
+          <span class="note" id="heatState" style="align-self:center"></span>
+        </div>
+        <div class="bar"><i id="heatBar"></i></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- светильник -->
+  <div class="card wide">
+    <div class="head">
+      <h2>Светильник</h2>
+      <div class="row" style="align-items:center">
+        <div class="seg-ctl">
+          <button id="lm-auto" onclick="cmd('lmode=auto','свет: авто')">Авто</button>
+          <button id="lm-night" onclick="cmd('lmode=night','свет: ночник')">Ночник</button>
+          <button id="lm-man" onclick="cmd('lmode=manual','свет: ручной')">Ручной</button>
+        </div>
+        <span class="pill" id="p-light">—</span>
+      </div>
+    </div>
+    <div class="row">
+      <label class="f">Рассвет<input type="time" id="lon"></label>
+      <label class="f">Закат<input type="time" id="loff"></label>
+      <label class="f">Ночник до<input type="time" id="lnoff"></label>
+      <label class="f">Переход, мин<input type="number" id="lramp" min="1" max="180"></label>
+      <button class="btn primary" onclick="applyLight()">Применить расписание</button>
+    </div>
+    <div class="days" id="days" style="margin-top:14px"></div>
+    <div id="chans"></div>
+    <p class="note" id="nlen" style="margin-top:12px">—</p>
+  </div>
+
+  <!-- график -->
+  <div class="card wide">
+    <div class="head">
+      <h2>История температур</h2>
+      <div class="seg-ctl">
+        <button class="on" id="rg0" onclick="setRange(0)">1 ч</button>
+        <button id="rg1" onclick="setRange(1)">6 ч</button>
+        <button id="rg2" onclick="setRange(2)">24 ч</button>
+      </div>
+    </div>
+    <canvas id="chart" height="190"></canvas>
+    <div class="legend">
+      <span><i style="background:var(--accent)"></i>вода</span>
+      <span><i style="background:#5b7cff"></i>воздух</span>
+      <span><i style="background:rgba(255,120,60,.85)"></i>нагрев</span>
+      <span><i style="background:rgba(255,214,120,.8)"></i>свет</span>
+      <span id="chartInfo"></span>
+    </div>
+  </div>
+
+  <!-- диагностика -->
+  <div class="card wide">
+    <div class="head"><h2>Диагностика и обновление</h2><span class="note" id="diagNote">—</span></div>
+    <div class="tiles" id="diag"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn ghost" onclick="cmd('timesync=1','запрос времени у NTP')">Синхронизировать время</button>
+      <button class="btn ghost" onclick="cmd('scan=1','поиск датчиков')">Найти датчики</button>
+      <button class="btn ghost" onclick="showSensors()">Адреса датчиков</button>
+      <button class="btn ghost" onclick="cmd('conf=1','настройки сохранены')">Сохранить настройки</button>
+      <button class="btn ghost danger" onclick="if(confirm('Сбросить настройки к заводским?'))cmd('reset=1','сброс настроек')">Сброс</button>
+      <button class="btn ghost danger" onclick="if(confirm('Перезагрузить плату?'))cmd('reboot=1','перезагрузка')">Перезагрузка</button>
+    </div>
+    <div class="drop" id="drop" style="margin-top:14px">
+      <b>Обновление прошивки по воздуху</b><br>
+      перетащите сюда файл <code>firmware.bin</code> или нажмите, чтобы выбрать
+      <input type="file" id="fwfile" accept=".bin" style="display:none">
+    </div>
+    <div class="prog" id="prog"><i id="progFill"></i></div>
+  </div>
+
+  <!-- циклы -->
+  <div class="card wide">
+    <div class="head"><h2>Журнал циклов нагрева</h2><span class="note" id="cycNote">—</span></div>
+    <div class="table" id="cyc"></div>
+  </div>
+</section>
+
+<footer>
+  <div id="footInfo">—</div>
+  <div class="note" style="margin-top:6px">ESP32-S3 · живая телеметрия по SSE · страница хранится в памяти платы, интернет не нужен</div>
+</footer>
+</div>
+
+<script>
+var $=function(id){return document.getElementById(id)};
+var S=null,H=null,evt=null,lastOk=0,rangeIdx=0,ranges=[3600,21600,86400],firstRender=true;
+var WD=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+var PH={night:'Ночь',dawn:'Рассвет',day:'День',dusk:'Закат',manual:'Ручной свет'};
+var builtChans=false,builtDiag=false,bubbleEls=false;
+
+/* ---------- утилиты ---------- */
+function nf(v,d){ if(v===null||v===undefined||isNaN(v))return '—'; return Number(v).toFixed(d===undefined?1:d); }
+function setv(el,v){ if(el&&document.activeElement!==el) el.value=v; }
+function cls(id,base,on){ var e=$(id); if(e) e.className=base+(on?' on':''); }
+
+function toast(text,kind){
+  if(!text) return;
+  var t=document.createElement('div');
+  t.className='toast '+(kind||'');
+  t.textContent=text;
+  $('toasts').appendChild(t);
+  setTimeout(function(){ t.style.transition='opacity .4s,transform .4s'; t.style.opacity='0'; t.style.transform='translateX(120%)';
+    setTimeout(function(){ t.remove(); },420); },2600);
+}
+
+function cmd(qs,msg){
+  fetch('/api/cmd?'+qs,{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
+    if(msg) toast(msg, j&&j.ok?'ok':'err');
+  }).catch(function(){ toast('нет связи с платой','err'); });
+}
+function tgl(k){ cmd(k+'=toggle'); }
+
+/* ---------- приём данных ---------- */
+function connect(){
+  if(evt) try{ evt.close(); }catch(e){}
+  evt=new EventSource('/events');
+  evt.onmessage=function(e){
+    try{ S=JSON.parse(e.data); }catch(err){ return; }
+    lastOk=Date.now();
+    $('offline').classList.remove('show');
+    render();
+  };
+  evt.onerror=function(){ /* EventSource переподключится сам */ };
+}
+function poll(){
+  fetch('/api/state',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
+    S=j; lastOk=Date.now(); $('offline').classList.remove('show'); render();
+  }).catch(function(){});
+}
+function fetchHistory(){
+  fetch('/api/history?win='+ranges[rangeIdx],{cache:'no-store'}).then(function(r){return r.json()})
+    .then(function(h){ H=h; drawChart(); }).catch(function(){});
+}
+function setRange(i){
+  rangeIdx=i;
+  for(var k=0;k<3;k++) $('rg'+k).className=(k===i?'on':'');
+  fetchHistory();
+}
+function showSensors(){
+  fetch('/api/scan',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
+    var t='Датчиков 1-Wire: '+j.n+'\n';
+    for(var i=0;i<j.dev.length;i++){
+      t+=j.dev[i]+(i===j.water?'   ← вода':(i===j.air?'   ← воздух':''))+'\n';
+    }
+    toast('Датчиков: '+j.n,'ok');
+    alert(t+'\nСменить датчик воды: /api/cmd?water=0 (индекс из списка)');
+  }).catch(function(){ toast('не удалось получить список','err'); });
+}
+function applyHeat(){ cmd('set='+$('sp').value+'&hyst='+$('hy').value+'&maxt='+$('maxt').value+'&pw='+$('pw').value,'термостат обновлён'); }
+function applyFan(){ cmd('fanon='+$('fanon').value+'&fanhy='+$('fanhy').value,'вентилятор обновлён'); }
+function applyLight(){
+  cmd('on='+$('lon').value+'&off='+$('loff').value+'&noff='+$('lnoff').value+'&ramp='+$('lramp').value+'&days='+(S?S.days:127),'расписание сохранено');
+}
+function bumpSet(d){
+  if(!S) return;
+  var v=(Number(S.sp)+d).toFixed(1);
+  $('sp').value=v;
+  cmd('set='+v,'уставка '+v+' °C');
+}
+
+/* ---------- скелет интерфейса ---------- */
+function buildHero(){
+  var t=[['Температура воздуха','air'],['Уставка','sp'],['Полоса термостата','band'],['Нагрев','heat'],
+         ['До уставки','est'],['Энергия сегодня','kwh']];
+  var h='';
+  for(var i=0;i<t.length;i++) h+='<div class="tile"><span class="k">'+t[i][0]+'</span><span class="v" id="h-'+t[i][1]+'">—</span></div>';
+  $('heroStats').innerHTML=h;
+}
+function buildChans(){
+  var h='';
+  for(var c=0;c<(S?S.nch:1);c++){
+    var name=(S&&S.labels&&S.labels[c])?S.labels[c]:('Канал '+(c+1));
+    h+='<div class="bar" style="margin-top:16px"><i id="bar'+c+'"></i></div>'+
+       '<div class="sl"><span>День, %</span><b id="vday'+c+'">0</b>'+
+       '<input type="range" min="0" max="100" id="day'+c+'" oninput="sliderUi(\'day'+c+'\',\'vday'+c+'\')" '+
+       'onchange="cmd(\'lday='+c+',\'+this.value,\''+name+': день \'+this.value+\'%\')"></div>'+
+       '<div class="sl"><span>Ночник, %</span><b id="vnight'+c+'">0</b>'+
+       '<input type="range" min="0" max="100" id="night'+c+'" oninput="sliderUi(\'night'+c+'\',\'vnight'+c+'\')" '+
+       'onchange="cmd(\'lnight='+c+',\'+this.value,\''+name+': ночник \'+this.value+\'%\')"></div>'+
+       '<div class="sl"><span>Сейчас, %</span><b id="vman'+c+'">0</b>'+
+       '<input type="range" min="0" max="100" id="man'+c+'" oninput="sliderUi(\'man'+c+'\',\'vman'+c+'\')" '+
+       'onchange="cmd(\'lch='+c+'&lval=\'+this.value,\'яркость \'+this.value+\'%\')"></div>';
+  }
+  $('chans').innerHTML=h;
+}
+function sliderUi(id,vid){
+  var e=$(id); if(!e) return;
+  $(vid).textContent=e.value;
+  e.style.setProperty('--p', e.value+'%');
+}
+function buildDiag(){
+  var t=[['Адрес интерфейса','ip'],['Сеть','ssid'],['Шлюз','gw'],['Сигнал','rssi'],
+         ['Имя в сети','host'],['Время работы','up'],['Часы','time'],['Датчики','sen'],
+         ['Память настроек','nvm'],['Прошивка','fw'],['Свободно RAM / PSRAM','mem'],
+         ['Запросов с сайта','req'],['Последняя перезагрузка','rst']];
+  var h='';
+  for(var i=0;i<t.length;i++) h+='<div class="tile small"><span class="k">'+t[i][0]+'</span><span class="v" id="d-'+t[i][1]+'">—</span></div>';
+  $('diag').innerHTML=h;
+}
+function buildBubbles(){
+  var h='';
+  for(var i=0;i<18;i++){
+    var left=8+Math.random()*84, dur=5+Math.random()*5, delay=Math.random()*6, size=4+Math.random()*6;
+    h+='<i style="left:'+left.toFixed(1)+'%;width:'+size.toFixed(1)+'px;height:'+size.toFixed(1)+'px;'+
+       'animation-duration:'+dur.toFixed(1)+'s;animation-delay:'+delay.toFixed(1)+'s"></i>';
+  }
+  $('bubbles').innerHTML=h;
+  bubbleEls=true;
+}
+function buildHeatwaves(){
+  var h='';
+  for(var i=0;i<3;i++) h+='<i style="margin-left:'+(i*6-6)+'px;animation-delay:'+(i*0.8).toFixed(1)+'s"></i>';
+  $('heatwaves').innerHTML=h;
+}
+function buildDaySegments(){
+  if(!S) return;
+  var on=toMin(S.on), off=toMin(S.off), noff=toMin(S.noff), ramp=Number(S.ramp)||40;
+  var segs=[], dayLen=off-on; if(dayLen<=0) dayLen+=1440;
+  var nightLen=(noff-off+1440)%1440;
+  function push(a,b,k,txt){ if(b<=a) return; segs.push({a:a,b:b,k:k,t:txt}); }
+  push(0,on,'dark','');
+  push(on,on+ramp,'dawn','рассвет');
+  push(on+ramp,on+dayLen-ramp,'day','день');
+  push(on+dayLen-ramp,on+dayLen,'dusk','закат');
+  var noStart=on+dayLen;
+  if(nightLen>0) push(noStart,noStart+nightLen,'night','ночник');
+  push(noStart+Math.max(nightLen,0),1440,'dark','');
+  var h='';
+  for(var i=0;i<segs.length;i++){
+    var s=segs[i], w=(s.b-s.a)/1440*100;
+    var txt=(w>9)?s.t:'';                       // подпись только если сегмент достаточно широкий
+    h+='<div class="seg '+s.k+'" style="left:'+(s.a/1440*100).toFixed(2)+'%;width:'+w.toFixed(2)+'%">'+txt+'</div>';
+  }
+  $('daybar').innerHTML=h+'<div class="now" id="nowMark" style="left:'+(nowMin()/1440*100).toFixed(2)+'%"></div>';
+}
+function toMin(v){ if(!v) return 0; var p=String(v).split(':'); return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0); }
+function nowMin(){ if(!S||!S.time) return 0; var p=S.time.split(':'); return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0)+ (parseInt(p[2],10)||0)/60; }
+
+/* ---------- отрисовка ---------- */
+function tween(id,to,dec,suffix){
+  var el=$(id); if(!el) return;
+  var from=parseFloat(el.dataset.v);
+  if(isNaN(from)||el.dataset.v===undefined) from=to;
+  if(Math.abs(from-to)<0.005){ el.dataset.v=to; el.textContent=to.toFixed(dec)+(suffix||''); return; }
+  el.dataset.v=to;
+  var t0=performance.now(), dur=450;
+  function step(t){
+    var k=Math.min(1,(t-t0)/dur), e=1-Math.pow(1-k,3);
+    el.textContent=(from+(to-from)*e).toFixed(dec)+(suffix||'');
+    if(k<1) requestAnimationFrame(step);
+    else el.textContent=to.toFixed(dec)+(suffix||'');
+  }
+  requestAnimationFrame(step);
+  if(!firstRender){
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  }
+}
+
+function render(){
+  if(!S) return;
+  var nightLight=(S.phase==='night' && S.lmod!==1 && S.lp && S.lp[0]>0);
+  var critical=(S.al&0x0D)!==0;
+  var body=[];
+  if(nightLight) body.push('night');
+  if(S.pump) body.push('pump-on');
+  if(S.air) body.push('air-on');
+  if(S.fan) body.push('fan-on');
+  if(S.heat) body.push('heat-on');
+  if(S.heat) body.push('heating');
+  if(critical) body.push('alert');
+  document.body.className=body.join(' ');
+  document.body.dataset.phase=nightLight?'night':(S.phase||'day');
+
+  $('devname').textContent=S.name||'Аквариум';
+  $('clock').textContent=S.time||'--:--:--';
+  var netTxt=(S.ap?'точка доступа ':'')+(S.ip||'')+(S.rssi?(' · '+S.rssi+' дБм'):'');
+  $('netText').textContent=netTxt;
+  $('phaseNote').textContent=(S.tok?('вода '+nf(S.t,2)+' °C · воздух '+nf(S.ta,1)+' °C'):'НЕТ ДАТЧИКА ВОДЫ')+
+    ' · мощность дня '+nf(S.day[0],0)+'% · ночник '+nf(S.night[0],0)+'%'+
+    (S.night[0]?(', гаснет в '+(S.noff||'—')):' (выключен)');
+
+  /* лампа и вода */
+  $('lampFill').style.width=(S.lp[0]||0)+'%';
+  $('bloom').style.setProperty('--led-o',Math.min(1,(S.lp[0]||0)/70));
+  var wh=(72+Math.min(6,(S.lp[0]||0)/20))+'%';
+  $('waterCol').style.height=wh;
+
+  /* температура */
+  tween('tempVal',Number(S.t)||0,2,'');
+  $('tempSub').textContent=nightLight?'Ночник':(PH[S.phase]||'—');
+  $('tempTiny').textContent=S.tok?('вода · цель '+nf(S.sp,1)+' °C'):'ДАТЧИК ВОДЫ НЕ НАЙДЕН';
+  var span=4.0, lo=S.sp-span/2, p=(S.t-lo)/span; p=Math.max(0,Math.min(1,p));
+  $('ring').style.strokeDashoffset=(596.9*(1-p)).toFixed(1);
+  var hy=Number(S.hy)||0.4, w1=(S.sp-hy-lo)/span, w2=(S.sp+hy-lo)/span;
+  $('ringBand').style.strokeDasharray='4 6';
+
+  /* плитки героя */
+  tween('h-air',Number(S.ta)||0,2,' °C');
+  $('h-sp').textContent=nf(S.sp,1)+' °C';
+  $('h-band').textContent=nf(S.sp-S.hy,1)+'…'+nf(S.sp+S.hy,1)+' °C';
+  $('h-heat').textContent=S.heat?('включён '+fmtDur(S.hl)):'выключен';
+  $('h-est').textContent=(S.tok&&S.t<S.sp-0.05)?('≈ '+Math.max(1,Math.round(S.est/60))+' мин'):'—';
+  tween('h-kwh',Number(S.kwhd)/100,2,' кВт·ч');
+
+  /* реле */
+  cls('p-pump','pill',S.pump); cls('p-air','pill',S.air);
+  cls('p-fan','pill',S.fan);   cls('p-heat','pill',S.heat);
+  if(S.heat) $('p-heat').className='pill hot';
+  $('p-pump').textContent=S.pump?'ВКЛ':'ВЫКЛ';
+  $('p-air').textContent=S.air?'ВКЛ':'ВЫКЛ';
+  $('p-fan').textContent=S.fan?'ВКЛ':'ВЫКЛ';
+  $('p-heat').textContent=S.heat?(S.heatman?'ВКЛ вручную':'НАГРЕВ'):'ВЫКЛ';
+  cls('sw-pump','switch',S.pump); cls('sw-air','switch',S.air);
+  cls('sw-fan','switch',S.fan); if(S.heat) $('sw-heat').className='switch hot';
+  else $('sw-heat').className='switch';
+
+  /* термостат */
+  $('thermoNote').textContent='полоса '+nf(S.sp-S.hy,1)+'…'+nf(S.sp+S.hy,1)+' °C · защита при '+
+    nf(S.maxt,1)+' °C · '+nf(S.pw,0)+' Вт'+(S.hlock?' · ЗАБЛОКИРОВАН':'');
+  $('gaugeText').textContent=nf(S.t,1)+'°';
+  var gp=(Number(S.t)-15)/20; gp=Math.max(0,Math.min(1,gp));
+  $('needle').style.transform='rotate('+(-90+gp*180).toFixed(1)+'deg)';
+  var L=Math.PI*90;
+  $('gaugeVal').style.strokeDasharray=(gp*L).toFixed(1)+' '+(L*2);
+  var b1=((Number(S.sp)-hy)-15)/20, b2=((Number(S.sp)+hy)-15)/20;
+  $('gaugeBand').style.strokeDasharray=((b2-b1)*L).toFixed(1)+' '+(L*2);
+  $('gaugeBand').style.strokeDashoffset=(-b1*L).toFixed(1);
+  $('heatState').textContent=S.heat?('греет уже '+fmtDur(S.hl)):'нагрев выключен';
+  $('heatBar').style.width=(S.heat?Math.min(100,(S.hl%(45*60))/(45*60)*100):0)+'%';
+  setv($('sp'),S.sp); setv($('hy'),S.hy); setv($('maxt'),S.maxt); setv($('pw'),S.pw);
+  setv($('fanon'),S.fanon); setv($('fanhy'),S.fanhy);
+
+  /* светильник */
+  $('lm-auto').className=(S.lmod===0?'on':''); $('lm-night').className=(S.lmod===2?'on':'');
+  $('lm-man').className=(S.lmod===1?'on':'');
+  $('p-light').textContent=['АВТО','РУЧНОЙ','НОЧНИК'][S.lmod]||'АВТО';
+  $('p-light').className='pill '+((!S.lmod||S.lp[0]>0)?'on':'');
+  setv($('lon'),S.on); setv($('loff'),S.off); setv($('lnoff'),S.noff); setv($('lramp'),S.ramp);
+  if($('days').dataset.m!==String(S.days)){
+    var d='';
+    for(var i=1;i<=7;i++){ var wd=i%7, onn=(S.days>>wd)&1;
+      d+='<button class="day'+(onn?' on':'')+'" onclick="cmd(\'days='+((S.days^(1<<wd))&0x7F)+'\',\'расписание обновлено\')">'+WD[wd]+'</button>'; }
+    $('days').innerHTML=d;
+    $('days').dataset.m=S.days;
+  }
+  if(!builtChans){ buildChans(); builtChans=true; }
+  for(var c=0;c<S.nch;c++){
+    var vd=$('vday'+c), vn=$('vnight'+c), vm=$('vman'+c);
+    if(vd) vd.textContent=S.day[c];
+    if(vn) vn.textContent=S.night[c];
+    if(vm) vm.textContent=S.man[c];
+    var sd=$('day'+c), sn=$('night'+c), sm=$('man'+c);
+    if(sd){ sd.style.setProperty('--p',S.day[c]+'%'); if(document.activeElement!==sd) sd.value=S.day[c]; }
+    if(sn){ sn.style.setProperty('--p',S.night[c]+'%'); if(document.activeElement!==sn) sn.value=S.night[c]; }
+    if(sm){ sm.style.setProperty('--p',S.man[c]+'%'); if(document.activeElement!==sm) sm.value=S.man[c]; }
+    var b=$('bar'+c); if(b) b.style.width=(S.lp[c]||0)+'%';
+  }
+  var nl=Number(S.nlen||0);
+  $('nlen').textContent=!S.night[0]?'ночник выключен — ночью светильник не горит':
+    (nl<=0?'ночник гаснет сразу после заката':'ночник горит '+fmtDur(nl*60)+' после заката, затем светильник выключается до утра');
+  buildDaySegments();
+
+  /* журнал циклов */
+  var h='<div class="tr head"><span>#</span><span>Время</span><span>Старт</span><span>Конец</span><span>Нагрев</span><span>Ошибка</span></div>';
+  if(!S.cyc.length) h+='<div class="empty">Циклов ещё не было</div>';
+  for(var k=0;k<S.cyc.length;k++){
+    var c2=S.cyc[k], err=(c2.te-c2.sp), m=Math.floor(c2.d/60), s2=c2.d%60;
+    h+='<div class="tr"><span>'+(S.cyc.length-k)+'</span><span>'+c2.t+'</span><span>'+nf(c2.ts,2)+'°</span>'+
+       '<span>'+nf(c2.te,2)+'°</span><span>'+m+':'+(s2<10?'0':'')+s2+'</span>'+
+       '<span style="color:'+(Math.abs(err)<0.1?'#67eaa5':(err<0?'#7fb2ff':'#ffa878'))+'">'+
+       (err>=0?'+':'')+err.toFixed(2)+'°</span></div>';
+  }
+  $('cyc').innerHTML=h;
+  $('cycNote').textContent=S.cyc.length?('последние '+S.cyc.length):'—';
+
+  /* диагностика */
+  if(!builtDiag){ buildDiag(); builtDiag=true; }
+  var base='http://'+(S.ip||'');
+  $('d-ip').innerHTML='<a href="'+base+'" target="_blank" style="color:var(--accent);text-decoration:none">'+base+'</a>';
+  $('d-ssid').textContent=(S.ssid||'—')+(S.ap?' · точка доступа':'');
+  $('d-gw').textContent=S.gw||'—';
+  $('d-rssi').innerHTML=(S.ap?'—':bars(S.rssi)+(S.rssi||0)+' дБм');
+  $('d-host').innerHTML=(S.host||'—')+(S.ap?'':'<span style="color:var(--mute)">.local</span>');
+  $('d-up').textContent=fmtDur(S.up);
+  $('d-time').textContent=(S.time||'')+' '+(S.date||'')+' · '+(S.tsrc==='ntp'?'NTP':(S.tsrc==='approx'?'приблизительно':'время сборки'));
+  $('d-sen').textContent=S.nsen+' шт · вода '+(S.tok?'есть':'НЕТ')+' · воздух '+(S.aok?'есть':'НЕТ');
+  $('d-nvm').textContent=S.nvm?'сохранены':'по умолчанию';
+  $('d-fw').textContent='v'+(S.fw||'?')+(S.wd?' · WDT':'');
+  $('d-mem').textContent=Math.round((S.heap||0)/1024)+' КБ / '+((S.psram||0)/1048576).toFixed(0)+' МБ';
+  $('d-req').textContent=(S.reqs||0)+' (команд '+(S.cmds||0)+')';
+  $('d-rst').textContent=S.rstrt||'—';
+  $('diagNote').textContent=S.al?(S.altext||'есть тревоги'):'все системы в норме';
+
+  $('footInfo').textContent=(S.name||'')+' v'+(S.fw||'')+' · http://'+(S.ip||'')+
+    ' · работает '+fmtDur(S.up)+' · heap '+Math.round((S.hp||S.heap||0)/1024)+' КБ';
+  firstRender=false;
+}
+function bars(rssi){
+  var lvl=Math.max(0,Math.min(4,Math.round(((rssi||-90)+90)/12)));
+  var h='<span class="bars">';
+  for(var i=0;i<4;i++) h+='<i style="height:'+((i+1)*3+2)+'px;opacity:'+(i<lvl?1:.25)+'"></i>';
+  return h+'</span> ';
+}
+function fmtDur(sec){
+  sec=Number(sec)||0;
+  var h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=Math.floor(sec%60);
+  if(h) return h+' ч '+m+' мин';
+  if(m) return m+':'+(s<10?'0':'')+s;
+  return s+' с';
+}
+
+/* ---------- график ---------- */
+function fitCanvas(c){
+  var r=c.getBoundingClientRect(), dpr=Math.min(2,window.devicePixelRatio||1);
+  c.width=Math.max(320,Math.round(r.width*dpr));
+  c.height=Math.round(190*dpr);
+  var ctx=c.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {ctx:ctx,W:c.width/dpr,H:c.height/dpr};
+}
+function drawChart(){
+  var c=$('chart'); if(!c) return;
+  var o=fitCanvas(c), ctx=o.ctx, W=o.W, Hh=o.H, pad=8;
+  ctx.clearRect(0,0,W,Hh);
+  if(!H||!H.n){ ctx.fillStyle='rgba(255,255,255,.25)'; ctx.font='12px system-ui';
+    ctx.fillText('нет данных — накапливаю историю…',10,Hh/2); return; }
+  var n=H.n, t=H.t.map(function(v){return v/100}), a=H.a.map(function(v){return v/100}), f=H.f;
+  var all=t.concat(a.filter(function(v){return v>-20}));
+  var mn=Math.min.apply(null,all), mx=Math.max.apply(null,all);
+  if(!isFinite(mn)||!isFinite(mx)) return;
+  var m=(mx-mn)*0.18+0.25; mn-=m; mx+=m;
+  var accent=getComputedStyle(document.body).getPropertyValue('--accent').trim()||'#00e5ff';
+  var plotH=Hh-46;
+  function X(i){ return pad+(W-2*pad)*i/Math.max(1,n-1); }
+  function Y(v){ return pad+(plotH-pad)*(1-(v-mn)/(mx-mn)); }
+
+  /* сетка */
+  ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=1; ctx.font='10px system-ui';
+  for(var g=0;g<=3;g++){
+    var vv=mn+(mx-mn)*g/3, y=Y(vv);
+    ctx.beginPath(); ctx.moveTo(pad,y); ctx.lineTo(W-pad,y); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.35)'; ctx.fillText(vv.toFixed(1)+'°',4,y-3);
+  }
+  /* вода: заливка */
+  var grad=ctx.createLinearGradient(0,pad,0,plotH);
+  grad.addColorStop(0,'rgba('+getComputedStyle(document.body).getPropertyValue('--accent-rgb').trim()+',.34)');
+  grad.addColorStop(1,'rgba('+getComputedStyle(document.body).getPropertyValue('--accent-rgb').trim()+',0)');
+  ctx.beginPath(); ctx.moveTo(X(0),plotH);
+  for(var i2=0;i2<n;i2++) ctx.lineTo(X(i2),Y(t[i2]));
+  ctx.lineTo(X(n-1),plotH); ctx.closePath(); ctx.fillStyle=grad; ctx.fill();
+  /* воздух */
+  ctx.beginPath(); var started=false;
+  for(var i3=0;i3<n;i3++){ var v=a[i3]; if(!(v>-20)){started=false;continue;}
+    if(!started){ctx.moveTo(X(i3),Y(v));started=true;} else ctx.lineTo(X(i3),Y(v)); }
+  ctx.strokeStyle='#5b7cff'; ctx.lineWidth=1.6; ctx.stroke();
+  /* вода: линия */
+  ctx.beginPath(); started=false;
+  for(var i4=0;i4<n;i4++){ var v2=t[i4]; if(!(v2>-20)){started=false;continue;}
+    if(!started){ctx.moveTo(X(i4),Y(v2));started=true;} else ctx.lineTo(X(i4),Y(v2)); }
+  ctx.strokeStyle=accent; ctx.lineWidth=2.2; ctx.shadowColor=accent; ctx.shadowBlur=8; ctx.stroke(); ctx.shadowBlur=0;
+  /* уставка */
+  if(S){ ctx.setLineDash([5,5]); ctx.strokeStyle='rgba(255,255,255,.32)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(pad,Y(S.sp)); ctx.lineTo(W-pad,Y(S.sp)); ctx.stroke(); ctx.setLineDash([]); }
+  /* полосы состояния */
+  var base=plotH+16;
+  for(var i5=0;i5<n;i5++){
+    var fl=f[i5]||0, x0=X(i5), x1=X(i5+1);
+    if(fl&0x01){ ctx.fillStyle='rgba(255,120,60,.85)'; ctx.fillRect(x0,base,Math.max(1,x1-x0),8); }
+    if(fl&0x10){ ctx.fillStyle='rgba(255,214,120,.6)'; ctx.fillRect(x0,base+10,Math.max(1,x1-x0),8); }
+  }
+  $('chartInfo').textContent=n+' точек · шаг '+H.step+' с';
+}
+window.addEventListener('resize',function(){ drawChart(); });
+
+/* ---------- OTA ---------- */
+function otaUpload(file){
+  if(!file) return;
+  if(!/\.bin$/i.test(file.name)){ toast('нужен файл .bin','err'); return; }
+  if(!confirm('Прошить файл '+file.name+' ('+Math.round(file.size/1024)+' КБ)? Плата перезагрузится.')) return;
+  $('prog').classList.add('show');
+  var xhr=new XMLHttpRequest();
+  xhr.open('POST','/api/ota',true);
+  xhr.setRequestHeader('Content-Type','application/octet-stream');
+  xhr.upload.onprogress=function(e){ if(e.lengthComputable) $('progFill').style.width=(e.loaded/e.total*100)+'%'; };
+  xhr.onload=function(){
+    toast(xhr.status===200?'прошивка обновлена — плата перезагружается':'ошибка обновления: '+xhr.responseText,
+          xhr.status===200?'ok':'err');
+    setTimeout(function(){ $('prog').classList.remove('show'); $('progFill').style.width='0%'; },3000);
+  };
+  xhr.onerror=function(){ toast('не удалось передать файл','err'); $('prog').classList.remove('show'); };
+  xhr.send(file);
+}
+function initDrop(){
+  var d=$('drop'), inp=$('fwfile');
+  d.addEventListener('click',function(){ inp.click(); });
+  inp.addEventListener('change',function(){ if(inp.files.length) otaUpload(inp.files[0]); });
+  ['dragenter','dragover'].forEach(function(ev){ d.addEventListener(ev,function(e){ e.preventDefault(); d.classList.add('over'); }); });
+  ['dragleave','drop'].forEach(function(ev){ d.addEventListener(ev,function(e){ e.preventDefault(); d.classList.remove('over'); }); });
+  d.addEventListener('drop',function(e){ if(e.dataTransfer.files.length) otaUpload(e.dataTransfer.files[0]); });
+}
+/* рябь на кнопках */
+document.addEventListener('click',function(e){
+  var b=e.target.closest('.btn'); if(!b) return;
+  var r=b.getBoundingClientRect(), s=document.createElement('span');
+  s.className='rip'; s.style.width=s.style.height='10px';
+  s.style.left=(e.clientX-r.left-5)+'px'; s.style.top=(e.clientY-r.top-5)+'px';
+  b.appendChild(s); setTimeout(function(){ s.remove(); },620);
+});
+
+/* ---------- связь и запуск ---------- */
+setInterval(function(){
+  var age=lastOk?Math.round((Date.now()-lastOk)/1000):999;
+  if(age>6){ $('offline').classList.add('show'); $('offTimer').textContent='последние данные: '+age+' с назад'; }
+},1000);
+setInterval(function(){ if(!S||Date.now()-lastOk>6000) poll(); },5000);
+setInterval(function(){ if(Date.now()-lastOk<6000) fetchHistory(); },60000);
+
+window.addEventListener('load',function(){
+  buildHero(); buildBubbles(); buildHeatwaves(); initDrop();
+  connect(); poll(); fetchHistory();
+  setTimeout(function(){ if(!S) fetchHistory(); },1500);
+});
+window.addEventListener('visibilitychange',function(){ if(!document.hidden){ poll(); fetchHistory(); } });
+</script>
+</body>
+</html>
+)HTML";

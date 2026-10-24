@@ -1,0 +1,74 @@
+<script>
+/* ===================== ДЕМО-РЕЖИМ (только для превью-файла) =====================
+   Этот блок подменяет обращения к плате выдуманными данными, чтобы можно было
+   посмотреть интерфейс без железа. В прошивке его нет.                    */
+(function () {
+  var S = {
+    ok: 1, fw: '1.1.0-demo', name: 'Aquarium MKR1010', up: 3 * 3600 + 17 * 60,
+    time: '14:23:05', date: '08.10.2026', wd: 4, tsrc: 'ntp',
+    ip: '192.168.1.50', ap: 0, rssi: -58,
+    gw: '192.168.1.1', ssid: 'HomeWiFi', host: 'aquarium',
+    nvm: 1, rstrt: 1, reqs: 1284, cmds: 37, wd: 1,
+    t: 25.42, ta: 21.30, tf: 25.41, tok: 1, aok: 1, nsen: 2, al: 0, altext: '',
+    pump: 1, air: 1, fan: 0, heat: 1, hlock: 0, hl: 412, fanman: 0, heatman: 0,
+    sp: 25.0, hy: 0.4, maxt: 30.0, fanon: 27.0, fanhy: 0.5, pw: 75,
+    kwh: 412, kwhd: 37, est: 780,
+    lmod: 0, phase: 'day', lp: [72], day: [80], night: [5], man: [60],
+    labels: ['Светильник'], nch: 1,
+    on: '08:00', off: '20:00', ramp: 40, days: 127,
+    noff: '23:00', nlen: 180,
+    cyc: [
+      { t: '13:41', ts: 24.61, te: 25.02, d: 1140, sp: 25.0 },
+      { t: '11:12', ts: 24.58, te: 24.98, d: 1080, sp: 25.0 },
+      { t: '08:55', ts: 24.44, te: 24.91, d: 1260, sp: 25.0 }
+    ]
+  };
+  var N = 240, t = [], a = [], f = [];
+  for (var i = 0; i < N; i++) {
+    t.push(Math.round((25.35 + 0.32 * Math.sin(i / 26) - 0.12 * Math.cos(i / 7)) * 100));
+    a.push(Math.round((21.3 + 0.45 * Math.sin(i / 42)) * 100));
+    f.push((i % 70 < 16 ? 1 : 0) | (i > 110 ? 16 : 0) | 4 | 8);
+  }
+  var H = { n: N, p: 15, t: t, a: a, f: f };
+
+  window.fetch = function (url) {
+    url = String(url);
+    if (url.indexOf('/api/cmd') === 0) {
+      var q = url.split('?')[1] || '';
+      q.split('&').forEach(function (kv) {
+        var p = kv.split('='), k = p[0], v = p[1];
+        if (k === 'pump') S.pump = (v === 'toggle') ? 1 - S.pump : Number(v);
+        if (k === 'air')  S.air  = (v === 'toggle') ? 1 - S.air  : Number(v);
+        if (k === 'fan')  S.fan  = (v === 'toggle') ? 1 - S.fan  : Number(v);
+        if (k === 'heat') S.heat = (v === 'toggle') ? 1 - S.heat : Number(v);
+        if (k === 'set')   S.sp = Number(v);
+        if (k === 'hy')    S.hy = Number(v);
+        if (k === 'maxt')  S.maxt = Number(v);
+        if (k === 'pw')    S.pw = Number(v);
+        if (k === 'fanon') S.fanon = Number(v);
+        if (k === 'fanhy') S.fanhy = Number(v);
+        if (k === 'ramp')  S.ramp = Number(v);
+        if (k === 'on')    S.on = v;
+        if (k === 'off')   S.off = v;
+        if (k === 'days')  S.days = Number(v);
+        if (k === 'lmode') S.lmod = (v === 'manual') ? 1 : (v === 'night' ? 2 : 0);
+        if (k === 'lch')   S.man[Number(q.split('lval=')[1] ? 0 : 0)] = 0;
+      });
+      var lv = q.match(/lch=(\d+)&lval=(\d+)/);
+      if (lv) S.man[Number(lv[1])] = Number(lv[2]);
+      var ld = q.match(/lday=(\d+),(\d+)/);
+      if (ld) S.day[Number(ld[1])] = Number(ld[2]);
+      var ln = q.match(/lnight=(\d+),(\d+)/);
+      if (ln) S.night[Number(ln[1])] = Number(ln[2]);
+      return Promise.resolve({ json: function () { return Promise.resolve({ ok: 1 }); } });
+    }
+    if (url.indexOf('/api/history') === 0) return Promise.resolve({ json: function () { return Promise.resolve(H); } });
+    if (url.indexOf('/api/scan') === 0) return Promise.resolve({ json: function () { return Promise.resolve({ ok: 1, n: 2, water: 0, dev: ['28FF64A1B2C3D4E5', '28FF9F0A1B2C3D4E6'] }); } });
+    return Promise.resolve({ json: function () { return Promise.resolve(S); } });
+  };
+  document.addEventListener('DOMContentLoaded', function () {
+    var d = document.getElementById('devname');
+    if (d) d.textContent = S.name;
+  });
+})();
+</script>

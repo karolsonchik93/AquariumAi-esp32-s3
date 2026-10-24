@@ -1,0 +1,15 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+*.dblite
+
+# редакторы и ОС
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# рабочие каталоги сборки
+tools/

@@ -1,0 +1,613 @@
+/* =====================================================================
+   webui.h — веб-интерфейс аквариумного контроллера.
+   Страница хранится во флеш-памяти (PROGMEM) и отдаётся платой целиком:
+   ни интернета, ни внешних библиотек браузеру не требуется.
+
+   Разметка, стили и скрипт — в одном файле, обмен с платой через
+   /api/state (раз в 2 с), /api/history (раз в 15 с) и /api/cmd.
+   ===================================================================== */
+#pragma once
+
+static const char INDEX_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07090c">
+<title>Аквариум — MKR WiFi 1010</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07090c;--panel:rgba(255,255,255,.035);--panel2:rgba(255,255,255,.06);
+  --fg:#eaeff5;--dim:#8b97a5;--mute:#4a5563;--line:rgba(255,255,255,.07);
+  --accent:#00ffcc;--accent-rgb:0,255,204;--warn:#ffb020;--danger:#ff4d4d;
+  --ok:#25d07a;--radius:16px}
+body[data-phase="night"]{--accent:#5b7cff;--accent-rgb:91,124,255}
+body[data-phase="dawn"]{--accent:#ff9f43;--accent-rgb:255,159,67}
+body[data-phase="day"]{--accent:#00e0ff;--accent-rgb:0,224,255}
+body[data-phase="dusk"]{--accent:#c86bff;--accent-rgb:200,107,255}
+body[data-phase="manual"]{--accent:#00ffcc;--accent-rgb:0,255,204}
+body.alert{--accent:#ff4d4d;--accent-rgb:255,77,77}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--bg);color:var(--fg);font:15px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif;
+  min-height:100%;padding:14px 14px 40px;overflow-x:hidden}
+.glow{position:fixed;left:50%;top:-30vh;width:120vw;height:80vh;transform:translateX(-50%);
+  background:radial-gradient(closest-side,rgba(var(--accent-rgb),.16),transparent 70%);
+  pointer-events:none;z-index:0;transition:background 1.2s ease}
+header,main,footer{position:relative;z-index:1;max-width:1080px;margin:0 auto}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 4px 14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent);
+  animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.muted{color:var(--dim);font-size:12.5px}
+.clock{font-variant-numeric:tabular-nums;font-weight:600}
+.hud{display:flex;align-items:center;gap:14px}
+.alarm{margin:0 auto 14px;max-width:1080px;background:rgba(255,77,77,.13);border:1px solid rgba(255,77,77,.45);
+  color:#ffd9d9;border-radius:12px;padding:11px 14px;font-size:14px;display:flex;gap:9px;align-items:center}
+.alarm svg{flex:0 0 auto}
+.alarm.warn{background:rgba(255,176,32,.12);border-color:rgba(255,176,32,.45);color:#ffe4b0}
+.hidden{display:none!important}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;
+  margin-bottom:14px;backdrop-filter:blur(6px)}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+h2{font-size:14px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#cfd8e3}
+.note{color:var(--dim);font-size:12.5px;margin-bottom:10px}
+.hero{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+.ring{position:relative;width:190px;height:190px;flex:0 0 auto;margin:0 auto}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg);overflow:visible}
+.ring circle{fill:none;stroke-width:3;stroke-linecap:round}
+.ring-bg{stroke:rgba(255,255,255,.07)}
+.ring-fg{stroke:var(--accent);stroke-dasharray:540.35;stroke-dashoffset:540.35;
+  transition:stroke-dashoffset .6s ease,stroke .6s ease;filter:drop-shadow(0 0 8px rgba(var(--accent-rgb),.5))}
+.ring-in{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.temp{display:flex;align-items:baseline;gap:3px;font-variant-numeric:tabular-nums}
+.temp b{font-size:40px;font-weight:300;letter-spacing:-.02em}
+.temp span{font-size:15px;color:var(--dim)}
+.phase{margin-top:5px;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent)}
+.sub{margin-top:6px;font-size:11.5px;color:var(--mute)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;flex:1 1 320px}
+.stat{background:var(--panel2);border-radius:11px;padding:9px 11px}
+.stat .k{display:block;color:var(--dim);font-size:11.5px;letter-spacing:.03em}
+.stat .v{font-size:16px;font-variant-numeric:tabular-nums}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:9px;margin-bottom:12px}
+.tile{background:var(--panel2);border-radius:11px;padding:8px 11px;overflow:hidden}
+.tile .k{display:block;color:var(--dim);font-size:11.5px;letter-spacing:.03em}
+.tile .v{font-size:14px;font-variant-numeric:tabular-nums;overflow-wrap:break-word}
+.tile .v a{color:var(--accent);text-decoration:none;word-break:break-all}
+.okdot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 8px var(--ok);margin-right:6px;vertical-align:middle}
+.baddot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--danger);
+  box-shadow:0 0 8px var(--danger);margin-right:6px;vertical-align:middle}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.grid .card{margin-bottom:0}
+.wide{grid-column:1/-1}
+.badge{font-size:11px;font-weight:700;letter-spacing:.08em;padding:4px 10px;border-radius:20px;
+  background:rgba(255,255,255,.07);color:var(--dim);white-space:nowrap}
+.badge.on{background:rgba(37,208,122,.16);color:#5ef0a8;box-shadow:0 0 0 1px rgba(37,208,122,.35) inset;
+  animation:badgeGlow 2.6s ease-in-out infinite}
+.badge.hot{background:rgba(255,120,60,.16);color:#ffa06b;box-shadow:0 0 0 1px rgba(255,120,60,.4) inset;
+  animation:heatGlow 1.9s ease-in-out infinite}
+.badge.err{background:rgba(255,77,77,.16);color:#ff8f8f;box-shadow:0 0 0 1px rgba(255,77,77,.4) inset}
+
+/* ══════ анимации по назначению полей ══════ */
+@keyframes flow{to{background-position:36px 0}}
+@keyframes bubbles{0%{background-position:0 34px,0 34px,0 34px}
+  100%{background-position:0 -46px,7px -66px,-7px -54px}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes heatwave{0%,100%{opacity:.45;transform:translateY(2px)}50%{opacity:.95;transform:translateY(-2px)}}
+@keyframes badgeGlow{0%,100%{box-shadow:0 0 0 1px rgba(37,208,122,.35) inset}
+  50%{box-shadow:0 0 0 1px rgba(37,208,122,.7) inset,0 0 14px rgba(37,208,122,.35)}}
+@keyframes heatGlow{0%,100%{box-shadow:0 0 0 1px rgba(255,120,60,.4) inset}
+  50%{box-shadow:0 0 0 1px rgba(255,120,60,.8) inset,0 0 16px rgba(255,120,60,.45)}}
+@keyframes ringPulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes valFlash{0%{background:rgba(var(--accent-rgb),.3);border-radius:6px}100%{background:transparent}}
+@keyframes alarmPulse{0%,100%{opacity:1}50%{opacity:.62}}
+@keyframes dotPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.4);opacity:.55}}
+
+/* индикатор работы канала: вода течёт, пузырьки поднимаются, вентилятор крутится, тепло идёт вверх */
+.fx{height:0;overflow:hidden;transition:height .4s cubic-bezier(.3,.8,.3,1)}
+.fx.on{height:36px}
+.fx i{display:block;height:36px;border-radius:9px}
+.fx i.water{background:repeating-linear-gradient(115deg,rgba(0,224,255,.28) 0 7px,rgba(0,224,255,0) 7px 15px);
+  background-size:36px 100%;animation:flow 1.25s linear infinite}
+.fx i.air{background-image:radial-gradient(circle at 20% 90%,rgba(130,205,255,.65) 0 2px,transparent 3px),
+  radial-gradient(circle at 55% 90%,rgba(130,205,255,.5) 0 2px,transparent 3px),
+  radial-gradient(circle at 85% 90%,rgba(130,205,255,.6) 0 2px,transparent 3px);
+  background-size:44px 44px;background-repeat:repeat;animation:bubbles 2.3s linear infinite}
+.fx i.fan{width:36px;height:36px;margin:0 auto;border-radius:50%;
+  background:conic-gradient(from 0deg,rgba(150,205,255,.06) 0 12%,rgba(150,205,255,.55) 12% 25%,
+    rgba(150,205,255,.06) 25% 37%,rgba(150,205,255,.55) 37% 50%,rgba(150,205,255,.06) 50% 62%,
+    rgba(150,205,255,.55) 62% 75%,rgba(150,205,255,.06) 75% 87%,rgba(150,205,255,.55) 87% 100%);
+  animation:spin 1.05s linear infinite}
+.fx i.heat{background:linear-gradient(to top,rgba(255,120,60,.55),rgba(255,120,60,.05));
+  animation:heatwave 2.1s ease-in-out infinite}
+.flash{animation:valFlash .8s ease-out}
+body.heating .ring-fg{animation:ringPulse 1.7s ease-in-out infinite}
+body[data-phase="dawn"] .ring-fg,body[data-phase="dusk"] .ring-fg{animation:ringPulse 3.2s ease-in-out infinite}
+.alarm{animation:alarmPulse 2.2s ease-in-out infinite}
+.alarm.warn{animation:alarmPulse 3.6s ease-in-out infinite}
+.okdot{animation:dotPulse 2s ease-in-out infinite}
+.baddot{animation:alarmPulse 1s ease-in-out infinite}
+.row{display:flex;gap:9px;flex-wrap:wrap;align-items:flex-end}
+.row+.row{margin-top:10px}
+.btn{appearance:none;border:1px solid var(--line);background:var(--panel2);color:var(--fg);
+  font:inherit;font-size:13.5px;padding:9px 14px;border-radius:11px;cursor:pointer;transition:.15s}
+.btn:hover{background:rgba(255,255,255,.11)}
+.btn:active{transform:translateY(1px)}
+.btn.on{background:rgba(37,208,122,.18);border-color:rgba(37,208,122,.5);color:#7ff0b6}
+.btn.primary{background:rgba(var(--accent-rgb),.16);border-color:rgba(var(--accent-rgb),.45);color:var(--accent)}
+.btn.ghost{background:transparent;color:var(--dim)}
+.btn.danger{border-color:rgba(255,77,77,.4);color:#ff9090}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--dim)}
+input[type=number],input[type=time]{background:#0d1116;border:1px solid var(--line);color:var(--fg);
+  border-radius:9px;padding:7px 9px;font:inherit;font-size:13.5px;width:110px;font-variant-numeric:tabular-nums}
+input[type=time]{width:120px}
+input:focus{outline:1px solid rgba(var(--accent-rgb),.6);border-color:transparent}
+.days{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
+.day{border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:9px;
+  padding:7px 11px;font:inherit;font-size:12.5px;cursor:pointer}
+.day.on{background:rgba(var(--accent-rgb),.18);border-color:rgba(var(--accent-rgb),.5);color:var(--accent)}
+.chan{background:var(--panel2);border-radius:12px;padding:11px 13px}
+#chans{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin:12px 0}
+.chan-head{display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px}
+.chan-head i{font-style:normal;color:var(--accent);font-variant-numeric:tabular-nums}
+.bar{height:6px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden;margin-bottom:9px}
+.bar>i{display:block;height:100%;width:0;background:var(--accent);border-radius:4px;transition:width .4s ease}
+.sl{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--dim);margin-top:6px}
+.sl span{width:78px;flex:0 0 auto}
+input[type=range]{-webkit-appearance:none;appearance:none;flex:1 1 auto;height:4px;border-radius:3px;
+  background:rgba(255,255,255,.14);outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+  background:var(--accent);cursor:pointer;box-shadow:0 0 8px rgba(var(--accent-rgb),.6)}
+input[type=range]::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:var(--accent);cursor:pointer}
+canvas{width:100%;display:block;border-radius:10px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:9px;font-size:11.5px;color:var(--dim)}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.table{font-size:12.5px}
+.tr{display:grid;grid-template-columns:34px 58px 1fr 1fr 1fr 1fr;gap:6px;padding:7px 6px;
+  border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.tr.head{color:var(--mute);font-size:11px;letter-spacing:.04em;text-transform:uppercase}
+.tr:last-child{border-bottom:0}
+.empty{color:var(--mute);font-size:12.5px;padding:8px 4px}
+footer{margin-top:18px;color:var(--dim);font-size:12px}
+footer .row{margin-top:12px}
+.finfo{display:flex;gap:16px;flex-wrap:wrap}
+@media(max-width:560px){.temp b{font-size:34px}.ring{width:164px;height:164px}.tr{grid-template-columns:26px 50px 1fr 1fr 1fr 1fr}}
+</style>
+</head>
+<body data-phase="day">
+<div class="glow"></div>
+
+<header>
+  <div class="brand"><span class="dot"></span><span id="devname">Аквариум</span></div>
+  <div class="hud">
+    <span class="muted" id="net">подключение…</span>
+    <span class="clock" id="clock">--:--:--</span>
+  </div>
+</header>
+
+<div id="alarm" class="alarm hidden">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+       stroke-linecap="round"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+  <span id="alarmtext"></span>
+</div>
+
+<main>
+  <section class="card hero">
+    <div class="ring">
+      <svg viewBox="0 0 200 200">
+        <circle class="ring-bg" cx="100" cy="100" r="86"></circle>
+        <circle id="ringfg" class="ring-fg" cx="100" cy="100" r="86"></circle>
+      </svg>
+      <div class="ring-in">
+        <div class="temp"><b id="tval">--</b><span>°C</span></div>
+        <div class="phase" id="phase">—</div>
+        <div class="sub" id="tsub">вода · DS18B20 №1</div>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="k">Температура воздуха</span><span class="v" id="tair">—</span></div>
+      <div class="stat"><span class="k">Уставка</span><span class="v" id="tsp">—</span></div>
+      <div class="stat"><span class="k">Полоса термостата</span><span class="v" id="band">—</span></div>
+      <div class="stat"><span class="k">Нагрев</span><span class="v" id="heat">—</span></div>
+      <div class="stat"><span class="k">До уставки</span><span class="v" id="est">—</span></div>
+      <div class="stat"><span class="k">Энергия сегодня</span><span class="v" id="kwhd">—</span></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <div class="card-head"><h2>Помпа</h2><span class="badge" id="b-pump">—</span></div>
+      <p class="note">Реле 1 · фильтрация и перемешивание воды</p>
+      <div class="row"><button class="btn" id="btn-pump" onclick="tgl('pump')">Включить</button></div>
+      <div class="fx" id="fx-pump"><i class="water"></i></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Компрессор</h2><span class="badge" id="b-air">—</span></div>
+      <p class="note">Реле 2 · аэрация аквариума</p>
+      <div class="row"><button class="btn" id="btn-air" onclick="tgl('air')">Включить</button></div>
+      <div class="fx" id="fx-air"><i class="air"></i></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Вентилятор</h2><span class="badge" id="b-fan">—</span></div>
+      <p class="note">Реле 3 · охлаждение при перегреве воды</p>
+      <div class="row">
+        <button class="btn" id="btn-fan" onclick="tgl('fan')">Включить</button>
+        <button class="btn ghost" onclick="cmd('fanauto=1')">Вернуть авто</button>
+      </div>
+      <div class="row">
+        <label class="f">Включать выше, °C<input type="number" id="fanon" step="0.1" min="15" max="40"></label>
+        <label class="f">Гистерезис, °C<input type="number" id="fanhy" step="0.1" min="0.1" max="2"></label>
+        <button class="btn primary" onclick="applyFan()">Применить</button>
+      </div>
+    </div>
+
+    <div class="card wide">
+      <div class="card-head"><h2>Светильник</h2><span class="badge" id="b-light">—</span></div>
+      <p class="note">Рассвет → день → закат → ночник, затем светильник гаснет до утра</p>
+      <div class="row">
+        <button class="btn" id="m-auto" onclick="cmd('lmode=auto')">Авто</button>
+        <button class="btn" id="m-night" onclick="cmd('lmode=night')">Ночник</button>
+        <button class="btn" id="m-man" onclick="cmd('lmode=manual')">Ручной</button>
+        <span class="muted" id="lphase">—</span>
+      </div>
+      <div class="row">
+        <label class="f">Рассвет<input type="time" id="lon"></label>
+        <label class="f">Закат<input type="time" id="loff"></label>
+        <label class="f">Ночник до<input type="time" id="lnoff"></label>
+        <label class="f">Переход, мин<input type="number" id="lramp" min="1" max="180"></label>
+      </div>
+      <div class="days" id="days"></div>
+      <div class="row"><span class="muted" id="nlen">—</span></div>
+      <div id="chans"></div>
+      <div class="row"><button class="btn primary" onclick="applyLight()">Применить расписание</button></div>
+    </div>
+
+    <div class="card wide">
+      <div class="card-head"><h2>Подогреватель 75 Вт</h2><span class="badge" id="b-heat">—</span></div>
+      <p class="note">Реле 4 · термостат держит температуру автоматически (канал 4)</p>
+      <div class="row">
+        <label class="f">Уставка, °C<input type="number" id="sp" step="0.1" min="15" max="35"></label>
+        <label class="f">Гистерезис, °C<input type="number" id="hy" step="0.1" min="0.1" max="2"></label>
+        <label class="f">Аварийный порог, °C<input type="number" id="maxt" step="0.5" min="20" max="40"></label>
+        <label class="f">Мощность, Вт<input type="number" id="pw" step="5" min="5" max="500"></label>
+        <button class="btn primary" onclick="applyHeat()">Применить</button>
+      </div>
+      <div class="row">
+        <button class="btn" onclick="cmd('heat=1')">Нагрев вручную на 15 мин</button>
+        <button class="btn ghost" onclick="cmd('heatauto=1')">Вернуть авто</button>
+      </div>
+      <p class="note" id="hlock" style="margin:10px 0 0"></p>
+      <div class="fx" id="fx-heat"><i class="heat"></i></div>
+    </div>
+
+    <div class="card wide">
+      <div class="card-head"><h2>Температура за последний час</h2><span class="muted" id="hinfo">—</span></div>
+      <canvas id="chart" height="160"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--accent)"></i>вода</span>
+        <span><i style="background:#5b7cff"></i>воздух</span>
+        <span><i style="background:rgba(255,90,60,.9)"></i>нагрев</span>
+        <span><i style="background:rgba(255,200,60,.9)"></i>свет</span>
+      </div>
+    </div>
+
+    <div class="card wide">
+      <div class="card-head"><h2>Журнал циклов нагрева</h2><span class="muted" id="cinfo"></span></div>
+      <div class="table" id="cycles"></div>
+    </div>
+
+    <div class="card wide">
+      <div class="card-head"><h2>Диагностика</h2><span class="muted" id="dinfo">—</span></div>
+      <div class="tiles" id="diag"></div>
+      <div class="row">
+        <button class="btn ghost" onclick="showSensors()">Адреса датчиков</button>
+        <button class="btn ghost" onclick="cmd('scan=1')">Найти датчики заново</button>
+        <button class="btn ghost" onclick="cmd('timesync=1')">Синхронизировать время</button>
+        <button class="btn ghost" onclick="cmd('conf=1')">Сохранить настройки</button>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="finfo">
+      <span id="finfo">—</span>
+      <span id="live">—</span>
+    </div>
+    <div class="row">
+      <button class="btn ghost" onclick="cmd('timesync=1')">Синхронизировать время</button>
+      <button class="btn ghost" onclick="cmd('conf=1')">Сохранить в память</button>
+      <button class="btn ghost" onclick="cmd('scan=1');showSensors()">Найти датчики</button>
+      <button class="btn ghost" onclick="if(confirm('Сбросить настройки к заводским?'))cmd('reset=1')">Сброс настроек</button>
+      <button class="btn ghost danger" onclick="if(confirm('Перезагрузить плату?'))cmd('reboot=1')">Перезагрузка</button>
+    </div>
+  </footer>
+</main>
+
+<script>
+var $=function(id){return document.getElementById(id)};
+var S=null,H=null,built=false,busy=false,lastOk=0,firstRender=true;
+var WD=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+var PH={night:'Ночь',dawn:'Рассвет',day:'День',dusk:'Закат',manual:'Ручной свет'};
+
+function cmd(s){ if(busy) return; busy=true; setTimeout(function(){busy=false},250);
+  fetch('/api/cmd?'+s,{cache:'no-store'}).then(refresh).catch(function(){}); }
+function tgl(k){ cmd(k+'=toggle'); }
+function num(v,d){ return (v===null||v===undefined)?'—':Number(v).toFixed(d===undefined?1:d); }
+function setv(el,v){ if(el&&document.activeElement!==el) el.value=v; }
+function api(url){ return fetch(url,{cache:'no-store'}).then(function(r){return r.json()}); }
+
+function refresh(){
+  api('/api/state').then(function(j){
+    S=j; lastOk=Date.now();
+    $('net').textContent=(j.ap?'точка доступа ':'')+(j.ip||'')+(j.rssi?' · '+j.rssi+' dBm':'');
+    $('net').className='muted'; render(); updateLive();
+  }).catch(function(){ $('net').textContent='нет связи с платой'; $('net').className='muted'; updateLive(); });
+}
+function updateLive(){
+  var el=$('live'); if(!el) return;
+  if(!lastOk){ el.innerHTML='<span class="baddot"></span>ждём ответа платы…'; return; }
+  var age=Math.round((Date.now()-lastOk)/1000);
+  if(age>8){ el.innerHTML='<span class="baddot"></span>связь пропала '+(age>60?Math.round(age/60)+' мин':age+' с')+' назад'; }
+  else { el.innerHTML='<span class="okdot"></span>связь с платой есть, данные '+age+' с назад'; }
+}
+function refreshHistory(){
+  api('/api/history').then(function(j){ H=j; drawChart(); }).catch(function(){});
+}
+function showSensors(){
+  api('/api/scan').then(function(j){
+    var t='Датчиков: '+j.n+'\n';
+    for(var i=0;i<j.dev.length;i++) t+=j.dev[i]+(i===j.water?'  <- вода':'')+'\n';
+    alert(t+'\nСменить датчик воды можно командой:\n/api/cmd?water=0  (0 или 1)');
+  }).catch(function(){});
+}
+
+function render(){
+  if(!S) return;
+  var nightLight=(S.phase==='night' && S.lmod!==1 && S.lp && S.lp[0]>0);
+  var critical=(S.al&0x0D)!==0;
+  document.body.dataset.phase=nightLight?'night':(S.phase||'day');
+  var cls=[];
+  if(critical) cls.push('alert');
+  if(S.heat) cls.push('heating');
+  document.body.className=cls.join(' ');
+  $('alarm').className=S.al?('alarm'+(critical?'':' warn')):'alarm hidden';
+  $('alarmtext').textContent=S.altext||'';
+  $('devname').textContent=S.name||'Аквариум';
+
+  /* кольцо и температура — значения мигают при изменении */
+  flashVal($('tval'), num(S.t,2));
+  $('phase').textContent=nightLight?'Ночник':(PH[S.phase]||'—');
+  $('tsub').textContent=S.tok?'вода · DS18B20 №1':'ДАТЧИК ВОДЫ НЕ НАЙДЕН';
+  var span=4.0, lo=S.sp-span/2;
+  var p=(S.t-lo)/span; p=Math.max(0,Math.min(1,p));
+  $('ringfg').style.strokeDashoffset=(540.35*(1-p)).toFixed(1);
+  flashVal($('tair'), num(S.ta,2)+' °C');
+  $('tsp').textContent=num(S.sp,1)+' °C';
+  $('band').textContent=num(S.sp-S.hy,1)+'…'+num(S.sp+S.hy,1)+' °C';
+  $('lphase').textContent='сейчас '+num(S.lp[0],0)+'% · день '+num(S.day[0],0)+'% · ночник '+num(S.night[0],0)+'%';
+
+  if(S.heat){
+    var m=Math.floor(S.hl/60),sec=S.hl%60;
+    flashVal($('heat'), 'включён '+m+':'+(sec<10?'0':'')+sec);
+  } else {
+    $('heat').textContent='выключен';
+  }
+  $('est').textContent=(S.tok&&S.t<S.sp-0.05)?('≈ '+Math.max(1,Math.round(S.est/60))+' мин'):'—';
+  flashVal($('kwhd'), num(S.kwhd/100,2)+' кВт·ч');
+  $('clock').textContent=(S.time||'--:--:--');
+  $('hlock').textContent=S.hlock?'Заблокирован защитой, повтор через несколько минут.':'';
+
+  /* анимация каналов: вода, пузырьки, вращение, тепло */
+  setFx('fx-pump',S.pump); setFx('fx-air',S.air); setFx('fx-fan',S.fan); setFx('fx-heat',S.heat);
+
+  /* реле */
+  badge('b-pump',S.pump,'ВКЛ','ВЫКЛ'); btn('btn-pump',S.pump);
+  badge('b-air',S.air,'ВКЛ','ВЫКЛ');   btn('btn-air',S.air);
+  badge('b-fan',S.fan,'ВКЛ','ВЫКЛ');   btn('btn-fan',S.fan);
+  badge('b-heat',S.heat,S.heatman?'ВКЛ вручную':'НАГРЕВ','ВЫКЛ');
+  $('b-heat').className='badge '+(S.heat?'hot':'');
+  $('b-light').textContent=['Авто','Ручной','Ночник'][S.lmod]||'Авто';
+  $('b-light').className='badge '+(S.lmod===0?'on':'');
+  setClass('m-auto',S.lmod===0); setClass('m-night',S.lmod===2); setClass('m-man',S.lmod===1);
+
+  setv($('fanon'),S.fanon); setv($('fanhy'),S.fanhy);
+  setv($('sp'),S.sp); setv($('hy'),S.hy); setv($('maxt'),S.maxt); setv($('pw'),S.pw);
+  setv($('lon'),S.on); setv($('loff'),S.off); setv($('lramp'),S.ramp);
+  setv($('lnoff'),S.noff);
+
+  /* сколько ночник горит после заката */
+  var nl=Number(S.nlen||0);
+  if(!S.night[0])       $('nlen').textContent='ночник выключен: ночью светильник не горит';
+  else if(nl<=0)        $('nlen').textContent='ночник гаснет сразу после заката (время «ночник до» совпадает с закатом)';
+  else {
+    var nh=Math.floor(nl/60), nm=nl%60;
+    $('nlen').textContent='ночник горит '+((nh?nh+' ч ':'')+(nm?nm+' мин':'')).trim()+
+      ' после заката, затем светильник выключается до утра';
+  }
+
+  /* дни недели */
+  var d='';
+  for(var i=1;i<=7;i++){
+    var wd=i%7, on=(S.days>>wd)&1;
+    d+='<button class="day'+(on?' on':'')+'" onclick="toggleDay('+wd+')">'+WD[wd]+'</button>';
+  }
+  if($('days').dataset.m!==String(S.days)) { $('days').innerHTML=d; $('days').dataset.m=S.days; }
+
+  /* каналы света */
+  if(!built||$('chans').dataset.n!==String(S.nch)){ buildChans(); built=true; $('chans').dataset.n=S.nch; }
+  for(var c=0;c<S.nch;c++){
+    var cur=$('lv'+c); if(cur) cur.textContent=num(S.lp[c],0)+'%';
+    var bar=$('bar'+c); if(bar) bar.style.width=Math.max(1,S.lp[c])+'%';
+    setv($('day'+c),S.day[c]); setv($('night'+c),S.night[c]); setv($('man'+c),S.man[c]);
+  }
+
+  /* журнал циклов */
+  var h='<div class="tr head"><span>#</span><span>Время</span><span>Старт</span><span>Конец</span><span>Нагрев</span><span>Ошибка</span></div>';
+  if(!S.cyc.length) h+='<div class="empty">Циклов ещё не было</div>';
+  for(var k=0;k<S.cyc.length;k++){
+    var c2=S.cyc[k], err=(c2.te-c2.sp);
+    var mm=Math.floor(c2.d/60), ss=c2.d%60;
+    h+='<div class="tr"><span>'+(S.cyc.length-k)+'</span><span>'+c2.t+'</span><span>'+num(c2.ts,2)+'°</span>'+
+       '<span>'+num(c2.te,2)+'°</span><span>'+mm+':'+(ss<10?'0':'')+ss+'</span>'+
+       '<span style="color:'+(Math.abs(err)<0.1?'#5ef0a8':(err<0?'#7fb2ff':'#ffa06b'))+'">'+
+       (err>=0?'+':'')+err.toFixed(2)+'°</span></div>';
+  }
+  $('cycles').innerHTML=h;
+  $('cinfo').textContent=S.cyc.length?'последние '+S.cyc.length:'—';
+
+  var upH=Math.floor((S.up||0)/3600), upM=Math.floor(((S.up||0)%3600)/60);
+  $('finfo').textContent=(S.fw?(S.name+' v'+S.fw+' · '):'')+'работает '+upH+' ч '+upM+' мин';
+  updateDiag();
+  firstRender=false;      // дальше подсветка значений работает как индикатор изменений
+}
+function badge(id,on,t1,t2){ var e=$(id); if(e){ e.textContent=on?t1:t2; e.className='badge '+(on?'on':''); } }
+function btn(id,on){ var e=$(id); if(e){ e.textContent=on?'Выключить':'Включить'; e.className='btn'+(on?' on':''); } }
+
+/* ---------- карточка диагностики ---------- */
+function buildDiag(){
+  var t=[
+    ['Адрес интерфейса','d-ip'],['Сеть','d-ssid'],['Шлюз','d-gw'],['Сигнал','d-rssi'],
+    ['Имя платы в сети','d-host'],['Время работы','d-up'],['Часы','d-time'],['Датчики 1-Wire','d-sen'],
+    ['Настройки','d-nvm'],['Прошивка','d-fw'],['Запросов к серверу','d-req'],['Последний сброс','d-rst']
+  ], h='';
+  for(var i=0;i<t.length;i++) h+='<div class="tile"><span class="k">'+t[i][0]+'</span><span class="v" id="'+t[i][1]+'">—</span></div>';
+  $('diag').innerHTML=h;
+}
+function updateDiag(){
+  if(!$('diag').firstChild) buildDiag();
+  var base='http://'+(S.ip||'');
+  $('d-ip').innerHTML='<a href="'+base+'" target="_blank">'+base+'</a>';
+  $('d-ssid').textContent=(S.ssid||'—')+(S.ap?' (плата в режиме точки доступа)':'');
+  $('d-gw').textContent=S.gw||'—';
+  $('d-rssi').textContent=S.ap?'—':((S.rssi||0)+' dBm');
+  $('d-host').textContent=(S.host||'—')+(S.ap?'':'.local');
+  var hh=Math.floor((S.up||0)/3600), mm=Math.floor(((S.up||0)%3600)/60);
+  $('d-up').textContent=hh+' ч '+mm+' мин';
+  $('d-time').textContent=(S.time||'')+' '+(S.date||'')+' · '+(S.tsrc==='ntp'?'по NTP':'время компиляции');
+  $('d-sen').textContent=S.nsen+' шт (вода '+(S.tok?'есть':'НЕТ')+', воздух '+(S.aok?'есть':'НЕТ')+')';
+  $('d-nvm').textContent=S.nvm?'сохранены во флеш-память':'по умолчанию (ещё не сохранялись)';
+  $('d-fw').textContent='v'+(S.fw||'?')+(S.wd?' · сторожевой таймер вкл':'');
+  $('d-req').textContent=(S.reqs||0)+' (команд '+(S.cmds||0)+')';
+  var rc=['неизвестно','включение питания','кнопка RESET','включение питания','сторожевой таймер','включение питания',
+          'кнопка RESET','включение питания','программная перезагрузка'];
+  $('d-rst').textContent=rc[(S.rstrt||0)&0x0F]||'—';
+  $('dinfo').textContent=S.al?(S.altext||'есть тревоги'):'все системы в норме';
+}
+
+function buildChans(){
+  var h='';
+  for(var c=0;c<S.nch;c++){
+    var name=(S.labels&&S.labels[c])?S.labels[c]:('Канал '+(c+1));
+    h+='<div class="chan"><div class="chan-head"><span>'+name+'</span><i id="lv'+c+'">0%</i></div>'+
+       '<div class="bar"><i id="bar'+c+'"></i></div>'+
+       '<label class="sl"><span>День, %</span><input type="range" min="0" max="100" id="day'+c+'" '+
+       'onchange="cmd(\'lday='+c+',\'+this.value)"></label>'+
+       '<label class="sl"><span>Ночник, %</span><input type="range" min="0" max="100" id="night'+c+'" '+
+       'onchange="cmd(\'lnight='+c+',\'+this.value)"></label>'+
+       '<label class="sl"><span>Сейчас, %</span><input type="range" min="0" max="100" id="man'+c+'" '+
+       'onchange="cmd(\'lch='+c+'&lval=\'+this.value)"></label></div>';
+  }
+  $('chans').innerHTML=h;
+}
+function toggleDay(wd){ cmd('days='+((S.days^(1<<wd))&0x7F)); }
+function setClass(id,on){ var e=$(id); if(e) e.className='btn'+(on?' primary':''); }
+function applyHeat(){ cmd('set='+$('sp').value+'&hyst='+$('hy').value+'&maxt='+$('maxt').value+'&pw='+$('pw').value); }
+function applyFan(){ cmd('fanon='+$('fanon').value+'&fanhy='+$('fanhy').value); }
+function applyLight(){
+  var days=S.days;
+  cmd('on='+$('lon').value+'&off='+$('loff').value+'&noff='+$('lnoff').value+
+      '&ramp='+$('lramp').value+'&days='+days);
+}
+/* значение мигает, когда меняется — видно, что плата отвечает */
+function flashVal(el,text){
+  if(!el || el.textContent===text) return;
+  el.textContent=text;
+  if(firstRender) return;           // при первой отрисовке не мигаем
+  el.classList.remove('flash');
+  void el.offsetWidth;              // перезапуск анимации
+  el.classList.add('flash');
+}
+/* анимация работы канала: вода течёт, пузырьки идут, вентилятор крутится, тепло поднимается */
+function setFx(id,on){ var e=$(id); if(e) e.className='fx'+(on?' on':''); }
+
+/* ---------- графики ---------- */
+function fitCanvas(c){
+  var r=c.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+  c.width=Math.max(300,Math.round(r.width*dpr));
+  c.height=Math.round(150*dpr);
+  return c.getContext('2d');
+}
+function drawChart(){
+  var c=$('chart'); if(!c) return;
+  var ctx=fitCanvas(c), W=c.width, CH=c.height, pad=6;
+  var accent=getComputedStyle(document.body).getPropertyValue('--accent').trim()||'#00ffcc';
+  ctx.clearRect(0,0,W,CH);
+  if(!H||!H.n) return;
+  var n=H.n; if(!n) return;
+  var t=H.t.map(function(v){return v/100}), a=H.a.map(function(v){return v/100});
+  var all=t.concat(a.filter(function(v){return v>-20}));
+  var mn=Math.min.apply(null,all), mx=Math.max.apply(null,all);
+  if(!isFinite(mn)||!isFinite(mx)) return;
+  var m=(mx-mn)*0.15+0.2; mn-=m; mx+=m;
+  var plotH=CH-42;
+  function X(i){ return pad+(W-2*pad)*i/Math.max(1,n-1); }
+  function Y(v){ return pad+(plotH-pad)*(1-(v-mn)/(mx-mn)); }
+
+  /* сетка и подписи температур */
+  ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=1;
+  ctx.font='11px system-ui'; ctx.fillStyle='rgba(255,255,255,.34)';
+  for(var g=0;g<=3;g++){
+    var vv=mn+(mx-mn)*g/3, y=Y(vv);
+    ctx.beginPath(); ctx.moveTo(pad,y); ctx.lineTo(W-pad,y); ctx.stroke();
+    ctx.fillText(vv.toFixed(1)+'°',4,y-3);
+  }
+  /* полосы: нагрев и свет */
+  var base=plotH+16;
+  for(var i=0;i<n;i++){
+    var f=H.f[i]||0, x0=X(i), x1=X(i+1);
+    if(f&0x01){ ctx.fillStyle='rgba(255,90,60,.75)'; ctx.fillRect(x0,base,Math.max(1,x1-x0),7); }
+    if(f&0x10){ ctx.fillStyle='rgba(255,200,60,.55)'; ctx.fillRect(x0,base+9,Math.max(1,x1-x0),7); }
+  }
+  /* воздух */
+  ctx.strokeStyle='#5b7cff'; ctx.lineWidth=1.6; ctx.beginPath();
+  var started=false;
+  for(var i2=0;i2<n;i2++){
+    var v=a[i2];
+    if(!(v>-20)){ started=false; continue; }
+    if(!started){ ctx.moveTo(X(i2),Y(v)); started=true; } else ctx.lineTo(X(i2),Y(v));
+  }
+  ctx.stroke();
+  /* вода */
+  ctx.strokeStyle=accent; ctx.lineWidth=2; ctx.beginPath(); started=false;
+  for(var i3=0;i3<n;i3++){
+    var v2=t[i3];
+    if(!(v2>-20)){ started=false; continue; }
+    if(!started){ ctx.moveTo(X(i3),Y(v2)); started=true; } else ctx.lineTo(X(i3),Y(v2));
+  }
+  ctx.stroke();
+  /* уставка */
+  if(S){
+    ctx.strokeStyle='rgba(255,255,255,.28)'; ctx.setLineDash([5,5]); ctx.beginPath();
+    ctx.moveTo(pad,Y(S.sp)); ctx.lineTo(W-pad,Y(S.sp)); ctx.stroke(); ctx.setLineDash([]);
+  }
+  $('hinfo').textContent=n+' точек по '+H.p+' с';
+}
+window.addEventListener('resize',function(){ drawChart(); });
+
+/* первый запрос — после загрузки всей страницы,
+   чтобы автономная демо-версия успела подменить fetch */
+window.addEventListener('load',function(){
+  updateLive();
+  refresh(); refreshHistory();
+  setInterval(refresh,2000);
+  setInterval(refreshHistory,15000);
+  setInterval(updateLive,1000);
+});
+</script>
+</body>
+</html>
+)HTML";

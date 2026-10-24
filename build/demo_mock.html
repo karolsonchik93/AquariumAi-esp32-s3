@@ -1,0 +1,84 @@
+<script>
+/* ===================== ДЕМО-РЕЖИМ для превью страницы =====================
+   Подменяет EventSource и fetch выдуманными данными, чтобы интерфейс можно
+   было посмотреть без платы. В прошивке этого блока нет.                 */
+(function () {
+  var S = {
+    ok: 1, fw: '2.0.0-demo', name: 'Aquarium ESP32-S3', seq: 1,
+    up: 3 * 3600 + 17 * 60, heap: 214000, psram: 8388608,
+    t: 25.42, ta: 21.30, tf: 25.41, tok: 1, aok: 1, nsen: 2,
+    pump: 1, air: 1, fan: 0, heat: 1, hlock: 0, hl: 412, fanman: 0, heatman: 0,
+    sp: 25.0, hy: 0.4, maxt: 30.0, fanon: 27.0, fanhy: 0.5, pw: 75,
+    kwh: 412, kwhd: 37, est: 780,
+    lmod: 0, phase: 'day', lp: [72], day: [80], night: [5], man: [60],
+    labels: ['Светильник'], nch: 1,
+    on: '08:00', off: '20:00', noff: '23:00', nlen: 180, ramp: 40, days: 127,
+    time: '14:23:05', date: '08.10.2026', wd: 4, tsrc: 'ntp',
+    ip: '192.168.1.50', gw: '192.168.1.1', ssid: 'HomeWiFi', host: 'aquarium',
+    ap: 0, rssi: -58, nvm: 1, rstrt: 'включение питания',
+    reqs: 1284, cmds: 37, ota: 0, wd: 1, al: 0, altext: '',
+    hist: 240, histmax: 5760, step: 15,
+    cyc: [
+      { t: '13:41', ts: 24.61, te: 25.02, d: 1140, sp: 25.0 },
+      { t: '11:12', ts: 24.58, te: 24.98, d: 1080, sp: 25.0 },
+      { t: '08:55', ts: 24.44, te: 24.91, d: 1260, sp: 25.0 }
+    ]
+  };
+  var H = { n: 240, step: 15, t: [], a: [], f: [] };
+  for (var i = 0; i < 240; i++) {
+    H.t.push(Math.round((25.35 + 0.32 * Math.sin(i / 26) - 0.12 * Math.cos(i / 7)) * 100));
+    H.a.push(Math.round((21.3 + 0.45 * Math.sin(i / 42)) * 100));
+    H.f.push((i % 70 < 16 ? 1 : 0) | (i > 110 ? 16 : 0) | 4 | 8);
+  }
+  function apply(q) {
+    q.split('&').forEach(function (kv) {
+      var p = kv.split('='), k = p[0], v = decodeURIComponent(p[1] || '');
+      if (k === 'pump') S.pump = (v === 'toggle') ? 1 - S.pump : Number(v);
+      if (k === 'air')  S.air  = (v === 'toggle') ? 1 - S.air  : Number(v);
+      if (k === 'fan')  S.fan  = (v === 'toggle') ? 1 - S.fan  : Number(v);
+      if (k === 'heat') S.heat = (v === 'toggle') ? 1 - S.heat : Number(v);
+      if (k === 'set')  S.sp = Number(v);
+      if (k === 'hy')   S.hy = Number(v);
+      if (k === 'maxt') S.maxt = Number(v);
+      if (k === 'pw')   S.pw = Number(v);
+      if (k === 'fanon') S.fanon = Number(v);
+      if (k === 'fanhy') S.fanhy = Number(v);
+      if (k === 'ramp') S.ramp = Number(v);
+      if (k === 'on')   S.on = v;
+      if (k === 'off')  S.off = v;
+      if (k === 'noff') { S.noff = v; S.nlen = 180; }
+      if (k === 'days') S.days = Number(v);
+      if (k === 'lmode') S.lmod = (v === 'manual') ? 1 : (v === 'night' ? 2 : 0);
+      if (k === 'lval') S.man[0] = Number(v);
+      if (k === 'lday') S.day[0] = Number(v);
+      if (k === 'lnight') S.night[0] = Number(v);
+      if (k === 'heat') S.heatman = 0;
+    });
+    var ld = q.match(/lday=(\d+),(\d+)/); if (ld) S.day[Number(ld[1])] = Number(ld[2]);
+    var ln = q.match(/lnight=(\d+),(\d+)/); if (ln) S.night[Number(ln[1])] = Number(ln[2]);
+    S.seq++;
+  }
+  window.fetch = function (url) {
+    url = String(url);
+    if (url.indexOf('/api/cmd') === 0) {
+      apply(url.split('?')[1] || '');
+      return Promise.resolve({ json: function () { return Promise.resolve({ ok: 1, applied: 1 }); } });
+    }
+    if (url.indexOf('/api/history') === 0) return Promise.resolve({ json: function () { return Promise.resolve(H); } });
+    if (url.indexOf('/api/scan') === 0) return Promise.resolve({ json: function () { return Promise.resolve({ ok: 1, n: 2, water: 0, air: 1, dev: ['28FF64A1B2C3D4E5', '28FF9F0A1B2C3D4E6'] }); } });
+    return Promise.resolve({ json: function () { return Promise.resolve(S); } });
+  };
+  function FakeEventSource(url) {
+    var self = this;
+    this.onmessage = null; this.onerror = null; this.readyState = 1;
+    this.timer = setInterval(function () {
+      S.time = new Date().toTimeString().slice(0, 8);
+      if (self.onmessage) self.onmessage({ data: JSON.stringify(S) });
+    }, 1000);
+    this.close = function () { clearInterval(self.timer); };
+    setTimeout(function () { if (self.onmessage) self.onmessage({ data: JSON.stringify(S) }); }, 150);
+  }
+  window.EventSource = FakeEventSource;
+  window.__demo = { S: S, H: H };
+})();
+</script>
