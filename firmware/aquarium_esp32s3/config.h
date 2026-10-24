@@ -8,7 +8,7 @@
 #pragma once
 
 #define FW_NAME      "Aquarium ESP32-S3"
-#define FW_VERSION   "2.0.0"
+#define FW_VERSION   "2.0.1"     // 2.0.1 — совместимость с ядром ESP32 3.x (LEDC, watchdog, accept)
 
 /* ---------------------------------------------------------------------
    1. Wi-Fi

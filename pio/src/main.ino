@@ -33,9 +33,57 @@
 #include <esp_task_wdt.h>
 #include <esp_system.h>
 #include <math.h>
+#include <string.h>
+#include <strings.h>
+
+#if __has_include("esp32-hal-rgb-led.h")
+  #include "esp32-hal-rgb-led.h"
+  #define HAVE_RGB_LED 1
+#else
+  #define HAVE_RGB_LED 0
+#endif
 
 #include "config.h"
 #include "webui.h"
+
+/* ====================== СОВМЕСТИМОСТЬ ЯДЕР ESP32 ======================
+   Прошивка собирается и на Arduino-ESP32 2.x, и на 3.x. В 3.x переписали
+   API ШИМ (LEDC) и сторожевого таймера (IDF 5), поэтому все различия
+   спрятаны в этих обёртках — остальной код от версии ядра не зависит. */
+#ifndef ESP_ARDUINO_VERSION_MAJOR
+#define ESP_ARDUINO_VERSION_MAJOR 2      // на всякий случай: старое ядро
+#endif
+
+static void pwmInit(uint8_t ch, uint8_t pin, uint32_t freq, uint8_t bits) {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  /* 3.x: канал подбирается автоматически по выводу */
+  ledcAttach(pin, freq, bits);
+#else
+  ledcSetup(ch, freq, bits);
+  ledcAttachPin(pin, ch);
+#endif
+}
+
+static void pwmWrite(uint8_t ch, uint8_t pin, uint32_t duty) {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  (void)ch;
+  ledcWrite(pin, duty);
+#else
+  (void)pin;
+  ledcWrite(ch, duty);
+#endif
+}
+
+/* адресный светодиод состояния: в 3.x функция называется rgbLedWrite */
+static void rgbWrite(uint8_t pin, uint8_t r, uint8_t g, uint8_t b) {
+#if !HAVE_RGB_LED
+  (void)pin; (void)r; (void)g; (void)b;
+#elif ESP_ARDUINO_VERSION_MAJOR >= 3
+  rgbLedWrite(pin, r, g, b);
+#else
+  neopixelWrite(pin, r, g, b);
+#endif
+}
 
 /* ====================== СЛУЖЕБНЫЕ КОНСТАНТЫ ====================== */
 #define SETTINGS_MAGIC    0xA95E
@@ -522,7 +570,7 @@ static void ledWrite(uint8_t ch, uint8_t pct) {
   int32_t duty = gammaLut[pct];
   if (duty == ledDuty[ch]) return;
   ledDuty[ch] = duty;
-  ledcWrite(ch, (uint32_t)duty);
+  pwmWrite(ch, LED_PINS[ch], (uint32_t)duty);
 }
 
 static uint16_t nightLenMinutes() {
@@ -617,9 +665,9 @@ static void controlHeater() {
     float over = waterTemp - cfg.fanOn;
     uint8_t pct = (uint8_t)clampf(40.0f + over * 40.0f, 40.0f, 100.0f);
     static uint8_t lastPct = 255;
-    if (pct != lastPct) { lastPct = pct; ledcWrite(3, gammaLut[pct]); }
+    if (pct != lastPct) { lastPct = pct; pwmWrite(3, PIN_FAN_PWM, gammaLut[pct]); }
   } else {
-    ledcWrite(3, 0);
+    pwmWrite(3, PIN_FAN_PWM, 0);
   }
 #endif
 }
@@ -1334,7 +1382,11 @@ static void webTask(void* pv) {
     ArduinoOTA.handle();
 #endif
 
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    WiFiClient c = server.accept();        // в 3.x available() переименован в accept()
+#else
     WiFiClient c = server.available();
+#endif
     if (c) {
       httpServe(c);
     } else {
@@ -1361,11 +1413,7 @@ static void statusLedTask() {
   if (now - t >= period) {
     t = now;
     phase = !phase;
-#if __has_include("esp32-hal-rgb-led.h")
-    neopixelWrite(PIN_STATUS_RGB, phase ? r : 0, phase ? g : 0, phase ? b : 0);
-#else
-    digitalWrite(PIN_STATUS_RGB, phase ? HIGH : LOW);
-#endif
+    rgbWrite(PIN_STATUS_RGB, phase ? r : 0, phase ? g : 0, phase ? b : 0);
   }
 #endif
 }
@@ -1718,14 +1766,12 @@ void setup() {
     gammaLut[i] = (uint16_t)clampf(v, 0.0f, (float)((1 << LED_PWM_BITS) - 1));
   }
   for (uint8_t i = 0; i < LED_CHANNELS; i++) {
-    ledcSetup(i, LED_PWM_FREQ, LED_PWM_BITS);
-    ledcAttachPin(LED_PINS[i], i);
-    ledcWrite(i, 0);
+    pwmInit(i, LED_PINS[i], LED_PWM_FREQ, LED_PWM_BITS);
+    pwmWrite(i, LED_PINS[i], 0);
   }
 #if FAN_PWM_ENABLE
-  ledcSetup(3, 25000, LED_PWM_BITS);
-  ledcAttachPin(PIN_FAN_PWM, 3);
-  ledcWrite(3, 0);
+  pwmInit(3, PIN_FAN_PWM, 25000, LED_PWM_BITS);
+  pwmWrite(3, PIN_FAN_PWM, 0);
 #endif
 
   /* 6. История в PSRAM */
@@ -1775,7 +1821,18 @@ void setup() {
 
   /* 11. Сторожевой таймер */
 #if WATCHDOG_ENABLE
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  /* IDF 5: таймер уже инициализирован ядром — меняем период и подписываем loop-задачу */
+  {
+    esp_task_wdt_config_t twdtCfg = {};
+    twdtCfg.timeout_ms = (uint32_t)WATCHDOG_TIMEOUT_S * 1000UL;
+    twdtCfg.idle_core_mask = 0;
+    twdtCfg.trigger_panic = true;
+    if (esp_task_wdt_reconfigure(&twdtCfg) != ESP_OK) esp_task_wdt_init(&twdtCfg);
+  }
+#else
   esp_task_wdt_init(WATCHDOG_TIMEOUT_S, true);
+#endif
   esp_task_wdt_add(nullptr);
   Serial.print(F("[wdt] сторожевой таймер включён, "));
   Serial.print(WATCHDOG_TIMEOUT_S);
