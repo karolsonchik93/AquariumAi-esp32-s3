@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/wRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/wName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="Аквариум"
+            android:textColor="#7DD3FC"
+            android:textSize="10sp"
+            android:letterSpacing="0.12"
+            android:textAllCaps="true" />
+
+        <TextView
+            android:id="@+id/wStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="норма"
+            android:textColor="#22D37F"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="bottom"
+        android:layout_marginTop="6dp">
+
+        <TextView
+            android:id="@+id/wTemp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--"
+            android:textColor="#E8EEF6"
+            android:textSize="34sp"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/wUnit"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="°C"
+            android:textColor="#8B9BAD"
+            android:textSize="13sp"
+            android:layout_marginStart="2dp"
+            android:layout_marginBottom="6dp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/wSp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="цель 25.0 °C"
+        android:textColor="#8B9BAD"
+        android:textSize="11sp" />
+
+    <TextView
+        android:id="@+id/wHeat"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="нагрев выкл"
+        android:textColor="#8B9BAD"
+        android:textSize="12sp" />
+
+    <ProgressBar
+        android:id="@+id/wLightBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="6dp"
+        android:layout_marginTop="8dp"
+        android:max="100"
+        android:progress="0"
+        android:progressTint="#22D3EE"
+        android:progressBackgroundTint="#1B2A3C" />
+
+    <TextView
+        android:id="@+id/wLight"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="свет 0%"
+        android:textColor="#8B9BAD"
+        android:textSize="11sp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="8dp"
+        android:background="#12202F" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="6dp"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/wFoot"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="—"
+            android:textColor="#4D5B6B"
+            android:textSize="10sp" />
+
+        <TextView
+            android:id="@+id/wRefresh"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingStart="8dp"
+            android:paddingEnd="2dp"
+            android:text="⟳"
+            android:textColor="#22D3EE"
+            android:textSize="15sp" />
+    </LinearLayout>
+</LinearLayout>

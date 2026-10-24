@@ -147,6 +147,92 @@ body.heating .ring-fg{animation:ringPulse 1.8s ease-in-out infinite}
   box-shadow:0 0 14px 2px rgba(var(--accent-rgb),.8);transition:left 1s linear}
 .now::after{content:'';position:absolute;top:-3px;left:-3px;width:8px;height:8px;border-radius:50%;
   background:var(--accent);box-shadow:0 0 12px var(--accent)}
+/* ══════════ ГЕРОЙ: сцена, лучи, индикатор ══════════ */
+.heroCard .head{align-items:flex-start}
+.hbadge{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;font-size:10.5px;
+  font-weight:700;letter-spacing:.09em;background:rgba(34,211,127,.13);color:#67eaa5;
+  border:1px solid rgba(34,211,127,.38);transition:.35s;white-space:nowrap}
+.hbadge i{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 10px currentColor;
+  animation:breathe 2.2s ease-in-out infinite}
+.hbadge.err{background:rgba(255,77,94,.16);color:#ff9099;border-color:rgba(255,77,94,.45)}
+.hero .scene{min-width:0}
+.tank{height:340px}
+.rays{position:absolute;inset:0;overflow:hidden;pointer-events:none;opacity:.55;mix-blend-mode:screen}
+.rays i{position:absolute;top:-12%;width:16%;height:86%;filter:blur(7px);
+  background:linear-gradient(180deg,rgba(180,240,255,.32),rgba(180,240,255,0) 78%);
+  animation:raySway 12s ease-in-out infinite}
+.rays i:nth-child(1){left:13%}
+.rays i:nth-child(2){left:45%;width:10%;animation-delay:-4s;opacity:.75}
+.rays i:nth-child(3){left:71%;width:20%;animation-delay:-8s;opacity:.55}
+@keyframes raySway{0%,100%{transform:skewX(-15deg) translateX(0);opacity:.34}
+  50%{transform:skewX(-7deg) translateX(12px);opacity:.72}}
+.caustics{position:absolute;inset:0;pointer-events:none;mix-blend-mode:screen;opacity:.5;overflow:hidden}
+.caustics i{position:absolute;border-radius:50%;filter:blur(20px);
+  background:radial-gradient(circle,rgba(140,235,255,.34),transparent 72%);animation:drift2 19s ease-in-out infinite}
+.caustics i:nth-child(1){left:8%;top:42%;width:150px;height:66px}
+.caustics i:nth-child(2){left:50%;top:58%;width:190px;height:58px;animation-delay:-7s}
+.caustics i:nth-child(3){left:72%;top:34%;width:120px;height:48px;animation-delay:-13s}
+@keyframes drift2{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(26px,-12px) scale(1.18)}}
+.sand{position:absolute;left:0;right:0;bottom:0;height:36px;pointer-events:none;
+  background:radial-gradient(130% 100% at 50% 100%,rgba(198,170,122,.34),rgba(120,100,70,.10) 72%,transparent)}
+.plants{position:absolute;left:0;right:0;bottom:26px;height:84px;pointer-events:none}
+.plants i{position:absolute;bottom:0;width:7px;border-radius:7px 7px 0 0;transform-origin:bottom center;
+  background:linear-gradient(180deg,rgba(64,205,145,.55),rgba(18,80,58,.22));animation:sway 7s ease-in-out infinite}
+.plants i:nth-child(1){left:11%;height:60px}
+.plants i:nth-child(2){left:14.5%;height:40px;animation-delay:-2.5s}
+.plants i:nth-child(3){left:77%;height:68px;animation-delay:-1.5s}
+.plants i:nth-child(4){left:80.5%;height:42px;animation-delay:-4s}
+@keyframes sway{0%,100%{transform:rotate(-3.5deg)}50%{transform:rotate(3.5deg)}}
+@keyframes swimBack{0%{transform:translate(0,0) scaleX(1)}45%{transform:translate(-300px,10px) scaleX(1)}
+  50%{transform:translate(-320px,10px) scaleX(-1)}95%{transform:translate(-10px,-8px) scaleX(-1)}
+  100%{transform:translate(0,0) scaleX(1)}}
+.fish.f1{animation-duration:27s}
+.fish.f2{top:64%;left:20%;width:46px;opacity:.42;animation-name:swimBack;animation-duration:36s}
+/* индикатор: дуга 270° */
+.gauge{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:min(64%,272px);aspect-ratio:1;
+  display:grid;place-items:center;pointer-events:none}
+.gauge svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.gTrack{fill:none;stroke:rgba(255,255,255,.09);stroke-width:9;stroke-linecap:round;
+  stroke-dasharray:377 502.7}
+.gBand{fill:none;stroke:rgba(34,211,127,.55);stroke-width:9;stroke-linecap:butt;
+  transition:stroke-dasharray .7s ease,stroke-dashoffset .7s ease}
+.gVal{fill:none;stroke:url(#gArc);stroke-width:9;stroke-linecap:round;stroke-dasharray:0 502.7;
+  transition:stroke-dasharray .9s cubic-bezier(.3,0,.2,1);filter:drop-shadow(0 0 7px rgba(34,211,238,.8))}
+.gDot{fill:#eafcff;transition:cx .9s cubic-bezier(.3,0,.2,1),cy .9s cubic-bezier(.3,0,.2,1)}
+.gDotGlow{fill:rgba(34,211,238,.30);transform-box:fill-box;transform-origin:center;
+  animation:dotPulse 2.6s ease-in-out infinite;transition:cx .9s cubic-bezier(.3,0,.2,1),cy .9s cubic-bezier(.3,0,.2,1)}
+@keyframes dotPulse{0%,100%{transform:scale(.65);opacity:.45}50%{transform:scale(1.4);opacity:.10}}
+.gRead{position:relative;z-index:2;text-align:center;padding:8px 14px;border-radius:50%}
+.gRead::before{content:'';position:absolute;inset:-8%;border-radius:50%;z-index:-1;
+  background:radial-gradient(closest-side,rgba(2,10,20,.80),transparent 76%)}
+.gTemp{font-size:clamp(30px,6.5vw,50px);font-weight:200;letter-spacing:-.03em;line-height:1.05;
+  font-variant-numeric:tabular-nums;text-shadow:0 0 34px rgba(var(--accent-rgb),.42),0 2px 16px rgba(0,0,0,.85)}
+.gTemp b{font-weight:200}
+.gTemp span{font-size:.42em;color:var(--dim);margin-left:2px}
+.gPhase{margin-top:2px;font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--accent)}
+.gTrend{margin-top:6px;font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+.gGoal{margin-top:2px;font-size:10.5px;color:var(--mute)}
+/* правая колонка */
+.hside{display:flex;flex-direction:column;gap:9px;min-width:0}
+.hrow{display:grid;grid-template-columns:24px 1fr;grid-template-areas:"ico body" "bar bar" "sub sub";
+  gap:1px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:14px;
+  padding:10px 12px 9px;transition:border-color .35s,background .35s}
+.hico{grid-area:ico;font-size:14px;line-height:1.35;opacity:.85}
+.hbody{grid-area:body;display:flex;align-items:baseline;justify-content:space-between;gap:8px;min-width:0}
+.hk{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim)}
+.hv{font-size:14.5px;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
+.hbar{grid-area:bar;height:4px;border-radius:3px;background:rgba(255,255,255,.09);overflow:hidden;margin-top:7px}
+.hbar>i{display:block;height:100%;width:0;border-radius:3px;
+  background:linear-gradient(90deg,rgba(var(--accent-rgb),.5),var(--accent));
+  transition:width .85s cubic-bezier(.3,0,.2,1)}
+.hsub{grid-area:sub;font-size:10.5px;color:var(--mute);margin-top:6px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.hrow.hot{border-color:rgba(255,120,60,.42);background:rgba(255,120,60,.07)}
+.hrow.hot .hbar>i{background:linear-gradient(90deg,#ffab5e,#ff3d00);box-shadow:0 0 12px rgba(255,90,40,.75)}
+.spark{margin-top:2px;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:8px 10px 2px}
+.sparkTop{display:flex;justify-content:space-between;font-size:10px;color:var(--dim);margin-bottom:3px}
+.spark canvas{width:100%;display:block;border-radius:6px}
+@media(max-width:560px){.tank{height:290px}.gauge{width:min(74%,230px)}}
 /* ══════════ ПЕРЕКЛЮЧАТЕЛИ ══════════ */
 .relay{display:flex;flex-direction:column;gap:12px}
 .relay .head{margin-bottom:0}
@@ -309,24 +395,35 @@ body.night .card{background:rgba(255,255,255,.03)}
 </header>
 
 <!-- ═══════════ АКВАРИУМ ═══════════ -->
-<section class="card">
+<section class="card heroCard" id="heroCard">
   <div class="head">
     <h2>Аквариум</h2>
-    <span class="note" id="phaseNote">—</span>
+    <div class="row" style="align-items:center;gap:10px">
+      <span class="hbadge" id="hbadge"><i></i><span id="hbadgeText">НОРМА</span></span>
+      <span class="note" id="phaseNote">—</span>
+    </div>
   </div>
   <div class="hero">
-    <div>
+    <div class="scene">
       <div class="tank">
         <div class="lamp"><i id="lampFill"></i></div>
         <div class="bloom" id="bloom"></div>
+        <div class="rays"><i></i><i></i><i></i></div>
         <div class="water" id="waterCol"></div>
+        <div class="caustics"><i></i><i></i><i></i></div>
         <svg class="waves" viewBox="0 0 1200 26" preserveAspectRatio="none">
           <path class="w1" d="M0,14 Q75,0 150,14 T300,14 T450,14 T600,14 T750,14 T900,14 T1050,14 T1200,14 L1200,26 L0,26 Z"/>
           <path class="w2" d="M0,16 Q75,4 150,16 T300,16 T450,16 T600,16 T750,16 T900,16 T1050,16 T1200,16 L1200,26 L0,26 Z"/>
         </svg>
+        <div class="sand"></div>
+        <div class="plants"><i></i><i></i><i></i><i></i></div>
         <div class="bubbles" id="bubbles"></div>
-        <svg class="fish" viewBox="0 0 100 46">
-          <path d="M6 23c14-14 42-16 60-6 6-6 16-9 26-8-6 5-9 10-9 14s3 9 9 14c-10 1-20-2-26-8-18 10-46 8-60-6z" fill="#8fd4ff" opacity=".85"/>
+        <svg class="fish f1" viewBox="0 0 100 46">
+          <path d="M6 23c14-14 42-16 60-6 6-6 16-9 26-8-6 5-9 10-9 14s3 9 9 14c-10 1-20-2-26-8-18 10-46 8-60-6z" fill="#8fd4ff" opacity=".9"/>
+          <circle cx="26" cy="20" r="2.6" fill="#0a2030"/>
+        </svg>
+        <svg class="fish f2" viewBox="0 0 100 46">
+          <path d="M6 23c14-14 42-16 60-6 6-6 16-9 26-8-6 5-9 10-9 14s3 9 9 14c-10 1-20-2-26-8-18 10-46 8-60-6z" fill="#5fb8e8" opacity=".7"/>
           <circle cx="26" cy="20" r="2.6" fill="#0a2030"/>
         </svg>
         <div class="impeller" title="Помпа">
@@ -351,23 +448,63 @@ body.night .card{background:rgba(255,255,255,.03)}
         </div>
         <div class="heatwaves" id="heatwaves"></div>
         <div class="heater" title="Подогреватель"><i></i></div>
-        <div class="ringwrap">
-          <svg viewBox="0 0 220 220">
-            <circle class="ring-bg" cx="110" cy="110" r="95"/>
-            <circle class="ring-band" id="ringBand" cx="110" cy="110" r="95"/>
-            <circle class="ring-fg" id="ring" cx="110" cy="110" r="95"/>
+
+        <!-- центральный индикатор температуры: дуга 270° -->
+        <div class="gauge">
+          <svg viewBox="0 0 200 200">
+            <defs>
+              <linearGradient id="gArc" x1="0" y1="1" x2="1" y2="0">
+                <stop offset="0" stop-color="#38bdf8"/><stop offset=".55" stop-color="#22d3ee"/><stop offset="1" stop-color="#a3e635"/>
+              </linearGradient>
+            </defs>
+            <g transform="rotate(135 100 100)">
+              <circle class="gTrack" cx="100" cy="100" r="80"/>
+              <circle class="gBand"  id="gBand" cx="100" cy="100" r="80"/>
+              <circle class="gVal"   id="gVal"  cx="100" cy="100" r="80"/>
+            </g>
+            <g id="gTicks"></g>
+            <circle class="gDotGlow" id="gDotGlow" cx="100" cy="165" r="10"/>
+            <circle class="gDot" id="gDot" cx="100" cy="165" r="4.5"/>
           </svg>
-        </div>
-        <div class="readout">
-          <div class="big"><b id="tempVal">--</b><span>°C</span></div>
-          <div class="sub" id="tempSub">—</div>
-          <div class="tiny" id="tempTiny">вода · DS18B20</div>
+          <div class="gRead">
+            <div class="gTemp"><b id="tempVal">--</b><span>°C</span></div>
+            <div class="gPhase" id="tempSub">—</div>
+            <div class="gTrend" id="tempTrend">—</div>
+            <div class="gGoal" id="tempTiny">—</div>
+          </div>
         </div>
       </div>
       <div class="daybar" id="daybar" style="margin-top:14px"><div class="now" id="nowMark" style="left:0%"></div></div>
     </div>
 
-    <div class="stats" id="heroStats"></div>
+    <div class="hside">
+      <div class="hrow">
+        <span class="hico">🌡</span>
+        <div class="hbody"><span class="hk">Воздух</span><span class="hv" id="h-air">—</span></div>
+        <div class="hbar"><i id="airBar"></i></div>
+      </div>
+      <div class="hrow" id="rowHeat">
+        <span class="hico">🔥</span>
+        <div class="hbody"><span class="hk">Нагрев</span><span class="hv" id="h-heat">—</span></div>
+        <div class="hbar"><i id="heatBar2"></i></div>
+        <span class="hsub" id="h-heatSub">—</span>
+      </div>
+      <div class="hrow">
+        <span class="hico">💡</span>
+        <div class="hbody"><span class="hk">Свет</span><span class="hv" id="h-light">—</span></div>
+        <div class="hbar"><i id="lightBar"></i></div>
+        <span class="hsub" id="h-lightSub">—</span>
+      </div>
+      <div class="hrow">
+        <span class="hico" id="rssiIco">📶</span>
+        <div class="hbody"><span class="hk">Связь</span><span class="hv" id="h-net">—</span></div>
+        <span class="hsub" id="h-netSub">—</span>
+      </div>
+      <div class="spark">
+        <canvas id="spark" height="56"></canvas>
+        <div class="sparkTop"><span>вода, последний час</span><span id="sparkInfo">—</span></div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -582,6 +719,24 @@ body.night .card{background:rgba(255,255,255,.03)}
         <div class="prog" id="ghProg"><i id="ghProgFill"></i></div>
       </div>
 
+      <div class="gh" id="widgetBox">
+        <div class="ghHead">
+          <b>Виджет для Android</b>
+          <span class="note" id="widgetInfo">квадрат 2×3 на главном экране: температура, уставка, нагрев и свет</span>
+        </div>
+        <div class="row">
+          <a class="btn primary" href="/api/widget.apk" download="aquarium-widget.apk">Скачать виджет (APK)</a>
+          <a class="btn" id="bindLink" href="#" onclick="return bindWidget()">Привязать к этой плате</a>
+          <span class="note" id="widgetNote">—</span>
+        </div>
+        <ol class="note" style="margin-top:10px;padding-left:20px;line-height:1.7">
+          <li>Скачайте APK и установите — Android спросит разрешение на установку из браузера.</li>
+          <li>Вернитесь на эту страницу и нажмите <b>«Привязать к этой плате»</b> — приложение получит адрес платы автоматически.</li>
+          <li>В приложении нажмите <b>«Добавить виджет»</b> и подтвердите — виджет 2×3 появится на главном экране.</li>
+          <li>Нажатие на виджет открывает эту страницу, кнопка ⟳ на виджете обновляет данные.</li>
+        </ol>
+      </div>
+
       <div class="row" style="margin-top:14px">
         <button class="btn ghost" onclick="cmd('timesync=1','запрос времени у NTP')">Синхронизировать время</button>
         <button class="btn ghost" onclick="cmd('scan=1','поиск датчиков')">Найти датчики</button>
@@ -650,7 +805,7 @@ function poll(){
 }
 function fetchHistory(){
   fetch('/api/history?win='+ranges[rangeIdx],{cache:'no-store'}).then(function(r){return r.json()})
-    .then(function(h){ H=h; drawChart(); }).catch(function(){});
+    .then(function(h){ H=h; drawChart(); drawSpark(); }).catch(function(){});
 }
 function setRange(i){
   rangeIdx=i;
@@ -850,11 +1005,59 @@ function bumpSet(d){
 }
 
 /* ---------- скелет интерфейса ---------- */
-function buildHero(){
-  var t=[['Температура воздуха','air'],['Уставка','sp'],['Нагрев','heat']];
+/* деления на дуге индикатора + буфер температур для тренда и мини-графика */
+function buildTicks(){
+  var g=$('gTicks'); if(!g) return;
   var h='';
-  for(var i=0;i<t.length;i++) h+='<div class="tile"><span class="k">'+t[i][0]+'</span><span class="v" id="h-'+t[i][1]+'">—</span></div>';
-  $('heroStats').innerHTML=h;
+  for(var i=0;i<=12;i++){
+    var th=(135+i*270/12)*Math.PI/180;
+    var x1=(100+73*Math.cos(th)).toFixed(1), y1=(100+73*Math.sin(th)).toFixed(1);
+    var x2=(100+66*Math.cos(th)).toFixed(1), y2=(100+66*Math.sin(th)).toFixed(1);
+    h+='<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="rgba(255,255,255,.17)" stroke-width="1.6" stroke-linecap="round"/>';
+  }
+  g.innerHTML=h;
+}
+var tempHist=[], lastSpark=0;
+function pushTemp(v){
+  if(v===null||v===undefined||isNaN(v)||v<=0) return;
+  tempHist.push(Number(v));
+  if(tempHist.length>900) tempHist.shift();
+}
+function tempTrend(){
+  if(tempHist.length<40) return 'накапливаю данные…';
+  var now=tempHist[tempHist.length-1], old=tempHist[Math.max(0,tempHist.length-300)];
+  var d=now-old;
+  if(Math.abs(d)<0.03) return '→ держится ровно';
+  return (d>0?'▲ +':'▼ ')+d.toFixed(2)+' °C за 5 мин';
+}
+function drawSpark(){
+  var c=$('spark'); if(!c||!H||!H.n||!H.t) return;
+  var r=c.getBoundingClientRect();
+  if(!r.width) return;
+  var dpr=Math.min(2,window.devicePixelRatio||1);
+  c.width=Math.round(r.width*dpr); c.height=Math.round(56*dpr);
+  var ctx=c.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+  var W=r.width, Hh=56;
+  ctx.clearRect(0,0,W,Hh);
+  var take=Math.min(H.n,240), t=[];
+  for(var i=H.n-take;i<H.n;i++) t.push(H.t[i]/100);
+  var mn=Math.min.apply(null,t), mx=Math.max.apply(null,t);
+  if(!isFinite(mn)||!isFinite(mx)) return;
+  var pad=(mx-mn)*0.28+0.06; var lo=mn-pad, hi=mx+pad;
+  function X(i){ return 2+(W-4)*i/Math.max(1,t.length-1); }
+  function Y(v){ return 5+(Hh-10)*(1-(v-lo)/(hi-lo)); }
+  var acc=(getComputedStyle(document.body).getPropertyValue('--accent').trim()||'#00e5ff');
+  var grad=ctx.createLinearGradient(0,0,0,Hh);
+  grad.addColorStop(0,acc+'66'); grad.addColorStop(1,acc+'00');
+  ctx.beginPath(); ctx.moveTo(X(0),Hh);
+  for(var k=0;k<t.length;k++) ctx.lineTo(X(k),Y(t[k]));
+  ctx.lineTo(X(t.length-1),Hh); ctx.closePath(); ctx.fillStyle=grad; ctx.fill();
+  ctx.beginPath();
+  for(var k2=0;k2<t.length;k2++){ if(k2===0) ctx.moveTo(X(k2),Y(t[k2])); else ctx.lineTo(X(k2),Y(t[k2])); }
+  ctx.strokeStyle=acc; ctx.lineWidth=1.8; ctx.lineJoin='round'; ctx.stroke();
+  if(S&&S.sp){ ctx.setLineDash([3,3]); ctx.strokeStyle='rgba(255,255,255,.28)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0,Y(S.sp)); ctx.lineTo(W,Y(S.sp)); ctx.stroke(); ctx.setLineDash([]); }
+  $('sparkInfo').textContent=mn.toFixed(1)+'…'+mx.toFixed(1)+' °C';
 }
 function buildChans(){
   var h='';
@@ -983,27 +1186,52 @@ function render(){
   var wh=(72+Math.min(6,(S.lp[0]||0)/20))+'%';
   $('waterCol').style.height=wh;
 
-  /* температура */
+  /* температура и дуга индикатора (270°, r=80 -> 502.7; видимая часть 377) */
   if(S.tok){
     tween('tempVal',Number(S.t)||0,2,'');
+    pushTemp(Number(S.t));
   } else {
     $('tempVal').textContent='—';
   }
   $('tempSub').textContent=nightLight?'Ночник':(PH[S.phase]||'—');
-  $('tempTiny').textContent=S.tok?('вода · цель '+nf(S.sp,1)+' °C'):'ДАТЧИК ВОДЫ НЕ НАЙДЕН';
-  /* кольцо: длина окружности r=95 -> 596.9; полоса термостата рисуется дугой */
-  var L=596.9, span=4.0, lo=S.sp-span/2;
-  var p=(Number(S.t)-lo)/span; p=Math.max(0,Math.min(1,p));
-  $('ring').style.strokeDashoffset=(L*(1-p)).toFixed(1);
+  $('tempTiny').textContent=S.tok?('цель '+nf(S.sp,1)+' ±'+nf(S.hy,1)+' °C'):'датчик воды не найден';
+  $('tempTrend').textContent=tempTrend();
+  var CIRC=502.65, SPAN=377.0, GLO=18, GHI=32;
+  var gp=Math.max(0,Math.min(1,((Number(S.t)||0)-GLO)/(GHI-GLO)));
+  if(S.tok) $('gVal').style.strokeDasharray=(gp*SPAN).toFixed(1)+' '+CIRC;
+  else $('gVal').style.strokeDasharray='0 '+CIRC;
   var hy=Number(S.hy)||0.4;
-  var b1=Math.max(0,Math.min(1,((S.sp-hy)-lo)/span)), b2=Math.max(0,Math.min(1,((S.sp+hy)-lo)/span));
-  $('ringBand').style.strokeDasharray=((b2-b1)*L).toFixed(1)+' '+(L*2).toFixed(1);
-  $('ringBand').style.strokeDashoffset=(-b1*L).toFixed(1);
+  var gb1=Math.max(0,Math.min(1,((S.sp-hy)-GLO)/(GHI-GLO)));
+  var gb2=Math.max(0,Math.min(1,((S.sp+hy)-GLO)/(GHI-GLO)));
+  $('gBand').style.strokeDasharray=((gb2-gb1)*SPAN).toFixed(1)+' '+CIRC;
+  $('gBand').style.strokeDashoffset=(-gb1*SPAN).toFixed(1);
+  var gth=(135+gp*270)*Math.PI/180;
+  var gx=(100+80*Math.cos(gth)).toFixed(1), gy=(100+80*Math.sin(gth)).toFixed(1);
+  $('gDot').setAttribute('cx',gx); $('gDot').setAttribute('cy',gy);
+  $('gDotGlow').setAttribute('cx',gx); $('gDotGlow').setAttribute('cy',gy);
 
-  /* плитки героя */
-  tween('h-air',Number(S.ta)||0,2,' °C');
-  $('h-sp').textContent=nf(S.sp,1)+' °C';
-  $('h-heat').textContent=S.heat?('включён '+fmtDur(S.hl)):'выключен';
+  /* бейдж состояния и правая колонка */
+  var crit=(S.al&0x0D)!==0;
+  $('hbadge').className='hbadge'+(crit?' err':'');
+  $('hbadgeText').textContent=crit?'тревога':'норма';
+  tween('h-air',Number(S.ta)||0,1,' °C');
+  $('airBar').style.width=Math.max(0,Math.min(100,((Number(S.ta)||0)-10)/25*100)).toFixed(0)+'%';
+  $('h-heat').textContent=S.heat?('греет '+fmtDur(S.hl)):(S.tok?'выключен':'заблокирован');
+  $('rowHeat').className='hrow'+(S.heat?' hot':'');
+  $('heatBar2').style.width=(S.heat?Math.max(6,Math.min(100,(S.hl%(45*60))/(45*60)*100)):0)+'%';
+  $('h-heatSub').textContent=S.heat
+    ? ('до уставки ≈ '+Math.max(1,Math.round((S.est||0)/60))+' мин, мощность '+nf(S.pw,0)+' Вт')
+    : (S.tok?('вода '+nf(S.t,2)+' °C, недобор '+nf(Math.max(0,S.sp-S.t),2)+' °C'):'нагрев заблокирован без датчика воды');
+  $('h-light').textContent=(S.lp[0]||0)+' %';
+  $('lightBar').style.width=(S.lp[0]||0)+'%';
+  var todayS=(S.sched&&S.sched[S.wd||0])?S.sched[S.wd||0]:null;
+  $('h-lightSub').textContent=(PH[S.phase]||'—')+(todayS&&todayS[0]?(', ночник до '+todayS[3]):', сегодня выключен');
+  $('h-net').textContent=S.ap?'точка доступа':(S.ip||'—');
+  $('h-netSub').textContent=(S.ap?'192.168.4.1 · ':(nf(S.rssi,0)+' дБм · '))+'работает '+fmtDur(S.up);
+  $('rssiIco').style.opacity=S.ap?1:(0.35+Math.min(0.65,Math.max(0,((S.rssi||-90)+90)/50)));
+
+  /* мини-график обновляем не чаще раза в 15 секунд */
+  if(Date.now()-lastSpark>15000){ lastSpark=Date.now(); drawSpark(); }
 
   /* реле */
   cls('p-pump','pill',S.pump); cls('p-air','pill',S.air);
@@ -1116,6 +1344,7 @@ function render(){
   $('diagNote').textContent=S.al?(S.altext||'есть тревоги'):'все системы в норме';
   if($('ghBox')) $('ghBox').style.display=S.ogithub?'':'none';
   if($('ghUrl')) $('ghUrl').textContent=S.ogithub?'источник: build/prebuilt в вашем репозитории':'';
+  updateWidgetLinks();
 
   $('footInfo').textContent=(S.name||'')+' v'+(S.fw||'')+' · http://'+(S.ip||'')+
     ' · работает '+fmtDur(S.up)+' · heap '+Math.round((S.hp||S.heap||0)/1024)+' КБ';
@@ -1203,6 +1432,31 @@ function setTimeFromBrowser(){
   var ep=Math.floor(Date.now()/1000);
   cmd('tset='+ep,'время взято с этого устройства: '+new Date().toLocaleString());
 }
+
+/* ---------- привязка Android-виджета к этой плате ---------- */
+function widgetHost(){
+  var h=(S&&S.ip&&S.ip!=='0.0.0.0')?S.ip:location.hostname;
+  return h||'';
+}
+function bindWidget(){
+  var h=widgetHost();
+  if(!h){ toast('адрес платы пока неизвестен','err'); return false; }
+  $('widgetNote').textContent='передаю адрес '+h+' в приложение…';
+  try{ window.location.href='aqua://bind?host='+encodeURIComponent(h); }catch(e){}
+  setTimeout(function(){
+    $('widgetNote').textContent='если приложение не открылось — сначала установите APK кнопкой слева';
+    toast('если приложение не открылось — сначала установите APK','err');
+  },2600);
+  return false;
+}
+function updateWidgetLinks(){
+  var h=widgetHost();
+  if($('bindLink')&&h) $('bindLink').href='aqua://bind?host='+encodeURIComponent(h);
+  if($('widgetNote')&&h&&!$('widgetNote').textContent.replace('—','').trim())
+    $('widgetNote').textContent='адрес для привязки: '+h;
+  if($('widgetInfo')&&S&&S.wapk) $('widgetInfo').textContent=
+    'квадрат 2×3 на главном экране · APK '+(S.wapk)+' КБ вшит в плату';
+}
 /* рябь на кнопках */
 document.addEventListener('click',function(e){
   var b=e.target.closest('.btn'); if(!b) return;
@@ -1229,9 +1483,10 @@ setInterval(function(){ if(!S||Date.now()-lastOk>6000) poll(); },5000);
 setInterval(function(){ if(Date.now()-lastOk<6000) fetchHistory(); },60000);
 
 window.addEventListener('load',function(){
-  buildHero(); buildBubbles(); buildHeatwaves();
+  buildTicks(); buildBubbles(); buildHeatwaves();
   connect(); poll(); fetchHistory();
-  setTimeout(function(){ if(!S) fetchHistory(); },1500);
+  setTimeout(function(){ if(!S) fetchHistory(); drawSpark(); },1500);
+  setTimeout(drawSpark,4000);
 });
 window.addEventListener('visibilitychange',function(){ if(!document.hidden){ poll(); fetchHistory(); } });
 </script>
@@ -1261,7 +1516,7 @@ window.addEventListener('visibilitychange',function(){ if(!document.hidden){ pol
     labels: ['Светильник'], nch: 1,
     time: '14:23:05', date: '08.10.2026', wd: 4, tsrc: 'ntp',
     ip: '192.168.1.50', gw: '192.168.1.1', ssid: 'HomeWiFi', host: 'aquarium',
-    ap: 0, rssi: -58, wssid: 'HomeWiFi', wst: 'ok', wcustom: 1, ogithub: 1, nvm: 1, rstrt: 'включение питания',
+    ap: 0, rssi: -58, wssid: 'HomeWiFi', wst: 'ok', wcustom: 1, ogithub: 1, wapk: 24, nvm: 1, rstrt: 'включение питания',
     reqs: 1284, cmds: 37, ota: 0, wdt: 1, al: 0, altext: '',
     hist: 240, histmax: 5760, step: 15,
     cyc: [

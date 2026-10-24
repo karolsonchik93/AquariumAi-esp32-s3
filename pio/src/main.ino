@@ -55,6 +55,11 @@
 
 #include "config.h"
 #include "webui.h"
+#if __has_include("widget_apk.h")
+  #include "widget_apk.h"                   // приложение-виджет Android, отдаётся по /api/widget.apk
+#else
+  #define WIDGET_APK_SIZE 0
+#endif
 
 /* ====================== СОВМЕСТИМОСТЬ ЯДЕР ESP32 ======================
    Прошивка собирается и на Arduino-ESP32 2.x, и на 3.x. В 3.x переписали
@@ -1251,6 +1256,7 @@ static int buildStateJson(char* out, size_t n) {
   w += snprintf(out + w, n - w, ",\"wssid\":\"%s\",\"wst\":\"%s\",\"wcustom\":%u",
                 t.wifiSsid, t.wifiStatus, t.wifiCustom ? 1 : 0);
   w += snprintf(out + w, n - w, ",\"ogithub\":%u", (unsigned)(ENABLE_GITHUB_OTA ? 1 : 0));
+  w += snprintf(out + w, n - w, ",\"wapk\":%u", (unsigned)(WIDGET_APK_SIZE / 1024));
   /* флаг сторожа называется wdt: ключ wd уже занят днём недели */
   w += snprintf(out + w, n - w, ",\"nvm\":%u,\"rstrt\":\"%s\",\"reqs\":%lu,\"cmds\":%lu,\"ota\":%u,\"wdt\":%u",
                 t.nvmLoaded ? 1 : 0, resetReasonName(resetReason),
@@ -1369,6 +1375,31 @@ static void httpSendState(WiFiClient& c) {
   httpSendHead(c, "200 OK", "application/json; charset=utf-8", n);
   c.write((const uint8_t*)buf, n);
   c.flush();
+}
+
+/* Приложение-виджет лежит во флеш-памяти платы и отдаётся как файл */
+static void httpSendWidgetApk(WiFiClient& c) {
+  if (WIDGET_APK_SIZE < 1000) {
+    httpSendHead(c, "404 Not Found", "application/json; charset=utf-8", -1);
+    c.print(F("{\"ok\":0,\"err\":\"виджет не вшит в эту сборку\"}"));
+    c.flush();
+    return;
+  }
+  c.print(F("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.android.package-archive\r\n"));
+  c.print(F("Content-Disposition: attachment; filename=\"aquarium-widget.apk\"\r\n"));
+  c.print(F("Content-Length: ")); c.print((unsigned long)WIDGET_APK_SIZE); c.print(F("\r\n"));
+  c.print(F("Cache-Control: max-age=86400\r\nConnection: close\r\n\r\n"));
+  uint8_t buf[1024];
+  for (size_t off = 0; off < (size_t)WIDGET_APK_SIZE; off += sizeof(buf)) {
+    size_t chunk = (size_t)WIDGET_APK_SIZE - off;
+    if (chunk > sizeof(buf)) chunk = sizeof(buf);
+    memcpy_P(buf, WIDGET_APK + off, chunk);
+    c.write(buf, chunk);
+    yield();
+  }
+  c.flush();
+  Serial.print(F("[http] отдан APK виджета, ")); Serial.print((unsigned long)WIDGET_APK_SIZE);
+  Serial.println(F(" байт"));
 }
 
 static void httpSendHistory(WiFiClient& c, uint32_t windowSec) {
@@ -1804,6 +1835,8 @@ static void httpServe(WiFiClient& c) {
     httpSendHistory(c, win);
   } else if (!strcmp(path, "/api/scan")) {
     httpSendScan(c);
+  } else if (!strcmp(path, "/api/widget.apk")) {
+    httpSendWidgetApk(c);
   } else if (!strcmp(path, "/api/wifi")) {
     httpHandleWifi(c, query);
   } else if (!strcmp(path, "/api/scanwifi")) {
