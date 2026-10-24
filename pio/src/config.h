@@ -8,7 +8,7 @@
 #pragma once
 
 #define FW_NAME      "Aquarium ESP32-S3"
-#define FW_VERSION   "2.2.0"     // 2.2.0 — Wi-Fi со страницы, обновление с GitHub по кнопке
+#define FW_VERSION   "2.2.1"     // 2.2.1 — Wi-Fi со страницы, обновление с GitHub по кнопке
 
 /* ---------------------------------------------------------------------
    1. Wi-Fi

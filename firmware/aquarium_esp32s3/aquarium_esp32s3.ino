@@ -972,7 +972,9 @@ static void netTask() {
     wifiWasConnected = true;
     staLostSince = 0;
     wifiTryingSince = 0;
-    const char* ssidNow = WiFi.SSID().c_str();
+    /* имя сети: иногда WiFi.SSID() пуст сразу после подключения — берём сохранённое */
+    String ssidNow = WiFi.SSID();
+    if (!ssidNow.length()) ssidNow = wifiSsid;
     if (!bannerValid) {
       Serial.print(F("[wifi] подключено к \"")); Serial.print(ssidNow);
       Serial.print(F("\", IP ")); Serial.print(ipStr);
