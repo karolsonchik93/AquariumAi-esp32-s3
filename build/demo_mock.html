@@ -10,9 +10,18 @@
     pump: 1, air: 1, fan: 0, heat: 1, hlock: 0, hl: 412, fanman: 0, heatman: 0,
     sp: 25.0, hy: 0.4, maxt: 30.0, fanon: 27.0, fanhy: 0.5, pw: 75,
     kwh: 412, kwhd: 37, est: 780,
+    sv: 3,
+    sched: [
+      [1,'09:00','21:00','23:00',40,120],   // Вс
+      [1,'08:00','20:00','23:00',40,180],   // Пн
+      [1,'08:00','20:00','23:00',40,180],
+      [1,'08:00','21:30','23:30',45,120],
+      [1,'08:00','20:00','23:00',40,180],
+      [1,'09:30','22:00','00:30',50,150],   // Пт
+      [0,'10:00','19:00','22:00',60,180]    // Сб — выходной
+    ],
     lmod: 0, phase: 'day', lp: [72], day: [80], night: [5], man: [60],
     labels: ['Светильник'], nch: 1,
-    on: '08:00', off: '20:00', noff: '23:00', nlen: 180, ramp: 40, days: 127,
     time: '14:23:05', date: '08.10.2026', wd: 4, tsrc: 'ntp',
     ip: '192.168.1.50', gw: '192.168.1.1', ssid: 'HomeWiFi', host: 'aquarium',
     ap: 0, rssi: -58, wssid: 'HomeWiFi', wst: 'ok', wcustom: 1, ogithub: 1, nvm: 1, rstrt: 'включение питания',
@@ -47,7 +56,17 @@
       if (k === 'on')   S.on = v;
       if (k === 'off')  S.off = v;
       if (k === 'noff') { S.noff = v; S.nlen = 180; }
-      if (k === 'days') S.days = Number(v);
+      if (k === 'sched') {
+        var groups = v.split(';');
+        for (var gi = 0; gi < groups.length && gi < 7; gi++) {
+          var f = groups[gi].split(','); if (f.length < 5) continue;
+          var on = f[1], off = f[2], nf = f[3];
+          var fmt = function (x) { x = String(x).replace(/[^0-9]/g, ''); while (x.length < 4) x = '0' + x; return x.slice(0, 2) + ':' + x.slice(2); };
+          S.sched[gi] = [Number(f[0]), fmt(on), fmt(off), fmt(nf), Number(f[4]),
+            (function () { var o = Number(fmt(off).slice(0,2))*60+Number(fmt(off).slice(3)), n = Number(fmt(nf).slice(0,2))*60+Number(fmt(nf).slice(3)); return (n - o + 1440) % 1440; })()];
+        }
+        S.sv = (S.sv || 0) + 1;
+      }
       if (k === 'lmode') S.lmod = (v === 'manual') ? 1 : (v === 'night' ? 2 : 0);
       if (k === 'lval') S.man[0] = Number(v);
       if (k === 'lday') S.day[0] = Number(v);

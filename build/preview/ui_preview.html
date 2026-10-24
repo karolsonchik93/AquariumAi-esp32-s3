@@ -248,6 +248,16 @@ details.acc[open]{border-color:rgba(var(--accent-rgb),.3)}
   border-radius:14px;padding:14px;margin-bottom:14px}
 .ghHead{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
 .ghHead b{font-size:13.5px;color:var(--fg)}
+/* ══════════ РАСПИСАНИЕ СВЕТА ══════════ */
+.srow{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;padding:10px 0;border-bottom:1px solid var(--line)}
+.srow:last-child{border-bottom:0}
+.srow.off{opacity:.45}
+.sday{display:flex;align-items:center;gap:7px;min-width:78px;font-size:13px;padding-bottom:8px;cursor:pointer}
+.sday input{width:17px;height:17px;accent-color:var(--accent);cursor:pointer}
+.sday b{font-weight:600;letter-spacing:.04em}
+.sf{display:flex;flex-direction:column;gap:4px;font-size:10.5px;letter-spacing:.03em;color:var(--dim);text-transform:uppercase}
+.sf input{width:112px}
+.sf input[type=number]{width:96px}
 /* ══════════ OTA ══════════ */
 .drop{border:1.5px dashed rgba(var(--accent-rgb),.4);border-radius:14px;padding:18px;text-align:center;
   color:var(--dim);font-size:13px;cursor:pointer;transition:.25s;background:rgba(var(--accent-rgb),.04)}
@@ -461,20 +471,39 @@ body.night .card{background:rgba(255,255,255,.03)}
         <span class="pill" id="p-light">—</span>
       </div>
     </div>
-    <div class="row">
-      <label class="f">Рассвет<input type="time" id="lon"></label>
-      <label class="f">Закат<input type="time" id="loff"></label>
-      <label class="f">Ночник до<input type="time" id="lnoff"></label>
-      <label class="f">Переход, мин<input type="number" id="lramp" min="1" max="180"></label>
-      <button class="btn primary" onclick="applyLight()">Применить расписание</button>
-    </div>
-    <div class="row" style="align-items:center;margin-top:14px;gap:14px">
-      <div class="days" id="days"></div>
+    <p class="note" id="todaySched">—</p>
+    <div class="row" style="align-items:center;margin-top:12px;gap:14px">
+      <button class="btn primary" onclick="openSched()">Настроить расписание</button>
       <span class="note" id="daysNote">—</span>
     </div>
     <div id="chans"></div>
     <p class="note" id="nlen" style="margin-top:12px">—</p>
   </div>
+
+  <!-- расписание света по дням недели (сворачиваемое) -->
+  <details class="card wide acc" id="accSched">
+    <summary>
+      <span class="accTitle">Расписание света</span>
+      <span class="accRight"><span class="note" id="schedNote">по дням</span><span class="chev">▾</span></span>
+    </summary>
+    <div class="accBody">
+      <div id="schedRows"></div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn primary" onclick="saveSched()">Сохранить расписание</button>
+        <button class="btn ghost" onclick="syncSched(true)">Вернуть как было</button>
+        <button class="btn ghost" onclick="copyDay(1)">Скопировать Пн во все дни</button>
+        <button class="btn ghost" onclick="copyDay(6,true)">Будни одним днём</button>
+        <span class="note" id="schedState">—</span>
+      </div>
+      <p class="note" style="margin-top:12px">
+        У каждого дня свои интервалы: <b>рассвет</b> — когда свет включается, <b>закат</b> — когда
+        начинается плавное выключение, <b>ночник до</b> — время, когда ночник гаснет полностью
+        (если поставить время заката, ночник не включится). <b>Переход</b> — сколько минут занимает
+        рассвет и закат. Снимите галочку — в этот день свет не включится вовсе.
+        Изменения вступают в силу после кнопки «Сохранить расписание».
+      </p>
+    </div>
+  </details>
 
   <!-- график -->
   <div class="card wide">
@@ -583,6 +612,7 @@ var S=null,H=null,evt=null,lastOk=0,rangeIdx=0,ranges=[3600,21600,86400],firstRe
 var WD=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
 var PH={night:'Ночь',dawn:'Рассвет',day:'День',dusk:'Закат',manual:'Ручной свет'};
 var builtChans=false,builtDiag=false,bubbleEls=false;
+var schedBuilt=false,schedDirty=false,schedSv=-1;
 
 /* ---------- утилиты ---------- */
 function nf(v,d){ if(v===null||v===undefined||isNaN(v))return '—'; return Number(v).toFixed(d===undefined?1:d); }
@@ -674,7 +704,7 @@ function pickNet(btn){
 }
 
 /* ---------- обновление прошивки с GitHub ---------- */
-var ghSize=0;
+var ghSize=0, ghVer='', ghNewer=false;
 function ghStream(url,onLine){
   fetch(url,{cache:'no-store'}).then(function(r){
     if(!r.body||!r.body.getReader){ return r.text().then(function(t){ t.split('\n').forEach(onLine); }); }
@@ -691,14 +721,26 @@ function ghStream(url,onLine){
     return pump();
   }).catch(function(){ toast('нет связи с платой','err'); });
 }
+function ghSummary(){
+  var found = (ghVer && ghVer!=='?') ? ('v'+ghVer) : 'версия не указана';
+  var rel = ghNewer ? ' — новее вашей v'+(S?S.fw:'') : ' — у вас та же версия v'+(S?S.fw:'');
+  return 'на GitHub: '+found+rel;
+}
 function ghCheck(){
-  $('ghInfo').textContent='проверяю файл на GitHub…';
-  $('ghRun').disabled=true; ghSize=0;
+  $('ghInfo').textContent='проверяю GitHub…';
+  $('ghRun').disabled=true; ghSize=0; ghVer=''; ghNewer=false;
+  var sizeTxt='';
   ghStream('/api/updcheck',function(line){
     var c=line.charAt(0), v=line.slice(2);
     if(c==='S') $('ghInfo').textContent=v;
-    else if(c==='I'){ $('ghInfo').textContent='доступна прошивка: '+v; }
-    else if(c==='D'){ $('ghInfo').textContent='файл доступен — можно обновляться'; $('ghRun').disabled=false; toast('прошивка на GitHub доступна','ok'); }
+    else if(c==='V'){ ghVer=v; }
+    else if(c==='N'){ ghNewer=(v==='1'); }
+    else if(c==='I'){ sizeTxt=' · '+v.replace('размер прошивки ',''); $('ghInfo').textContent=ghSummary()+sizeTxt; }
+    else if(c==='D'){
+      $('ghInfo').textContent=ghSummary()+sizeTxt+' — можно обновляться';
+      $('ghRun').disabled=false;
+      toast(ghVer==='?'?'файл прошивки доступен':('на GitHub версия v'+ghVer+(ghNewer?' — новее установленной':' — у вас актуальная')),'ok');
+    }
     else if(c==='E'){ $('ghInfo').textContent=v; toast(v,'err'); }
   });
 }
@@ -728,8 +770,79 @@ function showSensors(){
 }
 function applyHeat(){ cmd('set='+$('sp').value+'&hyst='+$('hy').value+'&maxt='+$('maxt').value+'&pw='+$('pw').value,'термостат обновлён'); }
 function applyFan(){ cmd('fanon='+$('fanon').value+'&fanhy='+$('fanhy').value,'вентилятор обновлён'); }
-function applyLight(){
-  cmd('on='+$('lon').value+'&off='+$('loff').value+'&noff='+$('lnoff').value+'&ramp='+$('lramp').value+'&days='+(S?S.days:127),'расписание сохранено');
+
+/* ---------- расписание света по дням ---------- */
+function openSched(){
+  var d=$('accSched');
+  if(d){ d.open=true; d.scrollIntoView({behavior:'smooth',block:'center'}); }
+}
+function buildSched(){
+  var h='';
+  for(var d=0;d<7;d++){
+    h+='<div class="srow" id="srow'+d+'">'
+      +'<label class="sday"><input type="checkbox" id="sen'+d+'" onchange="schedTouched()"><b>'+WD[d]+'</b></label>'
+      +'<label class="sf">Рассвет<input type="time" id="son'+d+'" onchange="schedTouched()"></label>'
+      +'<label class="sf">Закат<input type="time" id="soff'+d+'" onchange="schedTouched()"></label>'
+      +'<label class="sf">Ночник до<input type="time" id="snoff'+d+'" onchange="schedTouched()"></label>'
+      +'<label class="sf">Переход, мин<input type="number" min="1" max="180" id="sramp'+d+'" onchange="schedTouched()"></label>'
+      +'</div>';
+  }
+  $('schedRows').innerHTML=h;
+  schedBuilt=true;
+  schedSv=-1;
+}
+function setTime(id,v){ var el=$(id); if(el&&document.activeElement!==el) el.value=v||'00:00'; }
+function syncSched(force){
+  if(!S||!S.sched) return;
+  if(!schedBuilt) buildSched();
+  if(!force && !schedDirty && schedSv===S.sv) return;
+  for(var d=0;d<7;d++){
+    var e=S.sched[d]; if(!e) continue;
+    var cb=$('sen'+d); if(cb) cb.checked=!!e[0];
+    setTime('son'+d,e[1]); setTime('soff'+d,e[2]); setTime('snoff'+d,e[3]);
+    var r=$('sramp'+d); if(r&&document.activeElement!==r) r.value=e[4];
+    var row=$('srow'+d); if(row) row.className='srow'+(e[0]?'':' off');
+  }
+  schedSv=S.sv;
+  if(force){ schedDirty=false; $('schedState').textContent=''; }
+}
+function schedTouched(){
+  schedDirty=true;
+  $('schedState').textContent='есть несохранённые изменения';
+  for(var d=0;d<7;d++){
+    var cb=$('sen'+d), row=$('srow'+d);
+    if(cb&&row) row.className='srow'+(cb.checked?'':' off');
+  }
+}
+function hm(v){ return String(v||'00:00').replace(':',''); }
+function saveSched(){
+  if(!S||!S.sched){ toast('нет данных с платы','err'); return; }
+  var parts=[];
+  for(var d=0;d<7;d++){
+    var en=($('sen'+d)&&$('sen'+d).checked)?1:0;
+    var rp=parseInt($('sramp'+d).value,10); if(!rp||rp<1) rp=40; if(rp>180) rp=180;
+    parts.push(en+','+hm($('son'+d).value)+','+hm($('soff'+d).value)+','+hm($('snoff'+d).value)+','+rp);
+  }
+  $('schedState').textContent='сохраняю…';
+  fetch('/api/cmd?sched='+encodeURIComponent(parts.join(';')),{cache:'no-store'})
+    .then(function(r){return r.json()})
+    .then(function(j){
+      if(j&&j.ok){ schedDirty=false; $('schedState').textContent='сохранено'; toast('расписание сохранено','ok'); }
+      else { $('schedState').textContent='не удалось'; toast('не удалось сохранить','err'); }
+    }).catch(function(){ $('schedState').textContent='нет связи'; toast('нет связи с платой','err'); });
+}
+function copyDay(from,weekdaysOnly){
+  if(!$('son'+from)) return;
+  var on=$('son'+from).value, off=$('soff'+from).value, nf=$('snoff'+from).value,
+      rp=$('sramp'+from).value, en=$('sen'+from).checked;
+  for(var d=0;d<7;d++){
+    if(d===from) continue;
+    if(weekdaysOnly && (d===0||d===6)) continue;   /* 0 — Вс, 6 — Сб */
+    $('son'+d).value=on; $('soff'+d).value=off; $('snoff'+d).value=nf;
+    $('sramp'+d).value=rp; $('sen'+d).checked=en;
+  }
+  schedTouched();
+  toast(weekdaysOnly?'будни заполнены по '+WD[from]:('день '+WD[from]+' скопирован на все дни'));
 }
 function bumpSet(d){
   if(!S) return;
@@ -792,18 +905,25 @@ function buildHeatwaves(){
   $('heatwaves').innerHTML=h;
 }
 function buildDaySegments(){
-  if(!S) return;
-  var on=toMin(S.on), off=toMin(S.off), noff=toMin(S.noff), ramp=Number(S.ramp)||40;
+  if(!S||!S.sched) return;
+  var e=S.sched[S.wd||0]||S.sched[0];
+  if(!e) return;
+  var enabled=!!e[0];
+  var on=toMin(e[1]), off=toMin(e[2]), noff=toMin(e[3]), ramp=Number(e[4])||40;
   var segs=[], dayLen=off-on; if(dayLen<=0) dayLen+=1440;
   var nightLen=(noff-off+1440)%1440;
   function push(a,b,k,txt){ if(b<=a) return; segs.push({a:a,b:b,k:k,t:txt}); }
-  push(0,on,'dark','');
-  push(on,on+ramp,'dawn','рассвет');
-  push(on+ramp,on+dayLen-ramp,'day','день');
-  push(on+dayLen-ramp,on+dayLen,'dusk','закат');
-  var noStart=on+dayLen;
-  if(nightLen>0) push(noStart,noStart+nightLen,'night','ночник');
-  push(noStart+Math.max(nightLen,0),1440,'dark','');
+  if(!enabled){
+    push(0,1440,'dark','свет выключен');
+  } else {
+    push(0,on,'dark','');
+    push(on,on+ramp,'dawn','рассвет');
+    push(on+ramp,on+dayLen-ramp,'day','день');
+    push(on+dayLen-ramp,on+dayLen,'dusk','закат');
+    var noStart=on+dayLen;
+    if(nightLen>0) push(noStart,noStart+nightLen,'night','ночник');
+    push(noStart+Math.max(nightLen,0),1440,'dark','');
+  }
   var h='';
   for(var i=0;i<segs.length;i++){
     var s=segs[i], w=(s.b-s.a)/1440*100;
@@ -854,9 +974,10 @@ function render(){
   $('clock').textContent=S.time||'--:--:--';
   var netTxt=(S.ap?'точка доступа ':'')+(S.ip||'')+(S.rssi?(' · '+S.rssi+' дБм'):'');
   $('netText').textContent=netTxt;
+  var wdNow=(S.wd===undefined?0:S.wd), schedNow=(S.sched&&S.sched[wdNow])?S.sched[wdNow]:null;
   $('phaseNote').textContent=(S.tok?('вода '+nf(S.t,2)+' °C · воздух '+nf(S.ta,1)+' °C'):'НЕТ ДАТЧИКА ВОДЫ')+
-    ' · мощность дня '+nf(S.day[0],0)+'% · ночник '+nf(S.night[0],0)+'%'+
-    (S.night[0]?(', гаснет в '+(S.noff||'—')):' (выключен)');
+    ' · день '+nf(S.day[0],0)+'% · ночник '+nf(S.night[0],0)+'%'+
+    (schedNow&&schedNow[0]?(', ночник до '+schedNow[3]):' (свет сегодня выключен)');
 
   /* лампа и вода */
   $('lampFill').style.width=(S.lp[0]||0)+'%';
@@ -919,17 +1040,19 @@ function render(){
   $('lm-man').className=(S.lmod===1?'on':'');
   $('p-light').textContent=['АВТО','РУЧНОЙ','НОЧНИК'][S.lmod]||'АВТО';
   $('p-light').className='pill '+((!S.lmod||S.lp[0]>0)?'on':'');
-  setv($('lon'),S.on); setv($('loff'),S.off); setv($('lnoff'),S.noff); setv($('lramp'),S.ramp);
-  if($('days').dataset.m!==String(S.days)){
-    var d='', cnt=0;
-    for(var i=1;i<=7;i++){ var wd=i%7, onn=(S.days>>wd)&1; if(onn) cnt++;
-      d+='<button class="day'+(onn?' on':'')+'" onclick="cmd(\'days='+((S.days^(1<<wd))&0x7F)+'\',\'расписание обновлено\')">'+WD[wd]+'</button>'; }
-    $('days').innerHTML=d;
-    $('days').dataset.m=S.days;
-  }
+  /* сегодняшнее расписание одной строкой + счётчик дней */
+  var wd=(S.wd===undefined?0:S.wd), today=(S.sched&&S.sched[wd])?S.sched[wd]:null;
+  $('todaySched').textContent=today
+    ? (today[0] ? ('сегодня ('+WD[wd]+'): свет '+today[1]+'–'+today[2]+
+                   ', ночник до '+today[3]+' ('+Math.round((today[5]||0)/6)/10+' ч), переход '+today[4]+' мин')
+                : ('сегодня ('+WD[wd]+') выходной — свет не включается'))
+    : '—';
   var dayCnt=0;
-  for(var di=0;di<7;di++) if((S.days>>di)&1) dayCnt++;
-  $('daysNote').textContent=(dayCnt===7)?'включены все 7 дней':(dayCnt===0?'светильник не включается ни в один день':'включено дней: '+dayCnt+' из 7');
+  if(S.sched) for(var di=0;di<7;di++) if(S.sched[di]&&S.sched[di][0]) dayCnt++;
+  $('daysNote').textContent=(dayCnt===7)?'расписание на все 7 дней'
+    :(dayCnt===0?'ни один день не включён, свет не работает':'включено дней: '+dayCnt+' из 7');
+  $('schedNote').textContent=dayCnt+' из 7 дней';
+  syncSched();
   if(!builtChans){ buildChans(); builtChans=true; }
   for(var c=0;c<S.nch;c++){
     var vd=$('vday'+c), vn=$('vnight'+c), vm=$('vman'+c);
@@ -1145,9 +1268,18 @@ window.addEventListener('visibilitychange',function(){ if(!document.hidden){ pol
     pump: 1, air: 1, fan: 0, heat: 1, hlock: 0, hl: 412, fanman: 0, heatman: 0,
     sp: 25.0, hy: 0.4, maxt: 30.0, fanon: 27.0, fanhy: 0.5, pw: 75,
     kwh: 412, kwhd: 37, est: 780,
+    sv: 3,
+    sched: [
+      [1,'09:00','21:00','23:00',40,120],   // Вс
+      [1,'08:00','20:00','23:00',40,180],   // Пн
+      [1,'08:00','20:00','23:00',40,180],
+      [1,'08:00','21:30','23:30',45,120],
+      [1,'08:00','20:00','23:00',40,180],
+      [1,'09:30','22:00','00:30',50,150],   // Пт
+      [0,'10:00','19:00','22:00',60,180]    // Сб — выходной
+    ],
     lmod: 0, phase: 'day', lp: [72], day: [80], night: [5], man: [60],
     labels: ['Светильник'], nch: 1,
-    on: '08:00', off: '20:00', noff: '23:00', nlen: 180, ramp: 40, days: 127,
     time: '14:23:05', date: '08.10.2026', wd: 4, tsrc: 'ntp',
     ip: '192.168.1.50', gw: '192.168.1.1', ssid: 'HomeWiFi', host: 'aquarium',
     ap: 0, rssi: -58, wssid: 'HomeWiFi', wst: 'ok', wcustom: 1, ogithub: 1, nvm: 1, rstrt: 'включение питания',
@@ -1182,7 +1314,17 @@ window.addEventListener('visibilitychange',function(){ if(!document.hidden){ pol
       if (k === 'on')   S.on = v;
       if (k === 'off')  S.off = v;
       if (k === 'noff') { S.noff = v; S.nlen = 180; }
-      if (k === 'days') S.days = Number(v);
+      if (k === 'sched') {
+        var groups = v.split(';');
+        for (var gi = 0; gi < groups.length && gi < 7; gi++) {
+          var f = groups[gi].split(','); if (f.length < 5) continue;
+          var on = f[1], off = f[2], nf = f[3];
+          var fmt = function (x) { x = String(x).replace(/[^0-9]/g, ''); while (x.length < 4) x = '0' + x; return x.slice(0, 2) + ':' + x.slice(2); };
+          S.sched[gi] = [Number(f[0]), fmt(on), fmt(off), fmt(nf), Number(f[4]),
+            (function () { var o = Number(fmt(off).slice(0,2))*60+Number(fmt(off).slice(3)), n = Number(fmt(nf).slice(0,2))*60+Number(fmt(nf).slice(3)); return (n - o + 1440) % 1440; })()];
+        }
+        S.sv = (S.sv || 0) + 1;
+      }
       if (k === 'lmode') S.lmod = (v === 'manual') ? 1 : (v === 'night' ? 2 : 0);
       if (k === 'lval') S.man[0] = Number(v);
       if (k === 'lday') S.day[0] = Number(v);

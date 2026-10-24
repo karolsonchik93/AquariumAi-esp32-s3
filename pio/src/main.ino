@@ -106,16 +106,25 @@ static const char* const RELAY_NAMES[4] = { "помпа", "компрессор"
 
 enum LightPhase { LP_NIGHT = 0, LP_DAWN, LP_DAY, LP_DUSK, LP_MANUAL };
 static const char* const PHASE_NAMES[] = { "night", "dawn", "day", "dusk", "manual" };
+/* 0 — воскресенье, как tm_wday */
+static const char* const DAY_NAMES[7] = { "Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб" };
 
 /* ====================== СТРУКТУРЫ ====================== */
+/* Расписание на один день недели: у каждого дня свои интервалы */
+struct DaySchedule {
+  uint8_t enabled;        // день активен
+  uint8_t onHour, onMin;  // рассвет (свет включается)
+  uint8_t offHour, offMin;// закат (начинается плавное выключение)
+  uint8_t nightHour, nightMin; // ночник горит до этого времени
+  uint8_t rampMin;        // длительность рассвета и заката, минут
+};
+
 struct Settings {
   uint16_t magic;
   uint8_t  ver;
   uint8_t  ledCh;
   uint8_t  pumpOn, airOn, lightMode;
-  uint8_t  onHour, onMin, offHour, offMin;
-  uint8_t  nightOffHour, nightOffMin;
-  uint8_t  rampMin, daysMask;
+  DaySchedule days[7];    // 0 — воскресенье, 1 — понедельник, ... 6 — суббота
   uint8_t  dayPct[3], nightPct[3], manualPct[3];
   uint8_t  waterRom[8];
   uint8_t  reserved[2];
@@ -145,8 +154,9 @@ struct Telemetry {
   float    setpoint, hyst, maxWaterTemp, fanOn, fanHyst, heaterPowerW;
   uint8_t  lightMode, phase;
   uint8_t  ledPct[3], dayPct[3], nightPct[3], manualPct[3];
-  uint8_t  onH, onM, offH, offM, noffH, noffM, ramp, days;
-  uint16_t nightLenMin;
+  DaySchedule sched[7];       // расписание на каждый день недели
+  uint16_t nightLenMin;       // длительность ночника сегодня
+  uint8_t  schedRev;          // счётчик изменений расписания (для страницы)
   uint8_t  alarms;
   char     alarmText[96];
   uint32_t epoch;
@@ -245,7 +255,13 @@ static bool timeApprox = false;
 static WiFiServer server(HTTP_PORT);
 static WiFiClient sseClient;
 static uint32_t sseLast = 0;
-static char sseJson[1600];
+#define STATE_JSON_MAX 3000
+static char sseJson[STATE_JSON_MAX];
+
+/* заявки на изменение расписания (приходят длинной строкой, поэтому минуют очередь) */
+static uint8_t schedRev = 0;
+static char schedRequest[260];
+static volatile bool schedApplyReq = false;
 
 /* ====================== ПРОТОТИПЫ ====================== */
 static float  clampf(float v, float lo, float hi);
@@ -269,10 +285,12 @@ static void   sensorTask();
 
 static void   relayWrite(uint8_t ch, bool on);
 static void   ledWrite(uint8_t ch, uint8_t pct);
-static uint16_t nightLenMinutes();
+static uint16_t nightLenFor(const DaySchedule& ds);
 static void   controlHeater();
 static void   controlFan();
 static void   controlLight();
+static void   schedApplyDefaults(int day);
+static bool   schedParse(const char* s);
 
 static void   historyInit();
 static void   historyPush();
@@ -378,11 +396,17 @@ static void settingsDefaults() {
   cfg.ledCh = LED_CHANNELS;
   cfg.pumpOn = 1; cfg.airOn = 1;
   cfg.lightMode = 0;
-  cfg.onHour = DEF_LIGHT_ON_H;   cfg.onMin = DEF_LIGHT_ON_M;
-  cfg.offHour = DEF_LIGHT_OFF_H; cfg.offMin = DEF_LIGHT_OFF_M;
-  cfg.nightOffHour = DEF_NIGHT_OFF_H; cfg.nightOffMin = DEF_NIGHT_OFF_M;
-  cfg.rampMin = DEF_LIGHT_RAMP_MIN;
-  cfg.daysMask = DEF_DAYS_MASK;
+  /* одинаковое расписание на все 7 дней — дальше пользователь правит по дням */
+  for (uint8_t d = 0; d < 7; d++) {
+    cfg.days[d].enabled    = (DEF_DAYS_MASK >> d) & 0x01;
+    cfg.days[d].onHour     = DEF_LIGHT_ON_H;
+    cfg.days[d].onMin      = DEF_LIGHT_ON_M;
+    cfg.days[d].offHour    = DEF_LIGHT_OFF_H;
+    cfg.days[d].offMin     = DEF_LIGHT_OFF_M;
+    cfg.days[d].nightHour  = DEF_NIGHT_OFF_H;
+    cfg.days[d].nightMin   = DEF_NIGHT_OFF_M;
+    cfg.days[d].rampMin    = DEF_LIGHT_RAMP_MIN;
+  }
   cfg.dayPct[0] = DEF_DAY_PCT_1; cfg.dayPct[1] = DEF_DAY_PCT_2; cfg.dayPct[2] = DEF_DAY_PCT_3;
   cfg.nightPct[0] = DEF_NIGHT_PCT_1; cfg.nightPct[1] = DEF_NIGHT_PCT_2; cfg.nightPct[2] = DEF_NIGHT_PCT_3;
   cfg.manualPct[0] = 60; cfg.manualPct[1] = 40; cfg.manualPct[2] = 0;
@@ -587,9 +611,10 @@ static void ledWrite(uint8_t ch, uint8_t pct) {
   pwmWrite(ch, LED_PINS[ch], (uint32_t)duty);
 }
 
-static uint16_t nightLenMinutes() {
-  int16_t n = (int16_t)((int16_t)cfg.nightOffHour * 60 + cfg.nightOffMin) -
-              (int16_t)((int16_t)cfg.offHour * 60 + cfg.offMin);
+/* сколько минут ночник горит после заката (для конкретного дня) */
+static uint16_t nightLenFor(const DaySchedule& ds) {
+  int16_t n = (int16_t)((int16_t)ds.nightHour * 60 + ds.nightMin) -
+              (int16_t)((int16_t)ds.offHour * 60 + ds.offMin);
   n %= 1440;
   if (n < 0) n += 1440;
   return (uint16_t)n;
@@ -716,21 +741,21 @@ static void controlLight() {
   time_t t = time(nullptr);
   struct tm tmv;
   localtime_r(&t, &tmv);
-  bool dayEnabled = ((cfg.daysMask >> tmv.tm_wday) & 0x01) != 0;
+  const DaySchedule& ds = cfg.days[tmv.tm_wday & 0x07];
 
   int16_t nowMin = (int16_t)tmv.tm_hour * 60 + tmv.tm_min;
-  int16_t onMin  = (int16_t)cfg.onHour * 60 + cfg.onMin;
-  int16_t offMin = (int16_t)cfg.offHour * 60 + cfg.offMin;
+  int16_t onMin  = (int16_t)ds.onHour * 60 + ds.onMin;
+  int16_t offMin = (int16_t)ds.offHour * 60 + ds.offMin;
   int16_t dur = (int16_t)(offMin - onMin);
   if (dur <= 0) dur += 1440;
   int16_t el = (int16_t)(nowMin - onMin);
   if (el < 0) el += 1440;
 
   uint8_t pct[LED_CHANNELS];
-  uint8_t ramp = cfg.rampMin < 1 ? 1 : cfg.rampMin;
-  int16_t nightLen = (int16_t)nightLenMinutes();
+  uint8_t ramp = ds.rampMin < 1 ? 1 : ds.rampMin;
+  int16_t nightLen = (int16_t)nightLenFor(ds);
 
-  if (!dayEnabled) {
+  if (!ds.enabled) {
     lightPhase = LP_NIGHT;
     for (uint8_t i = 0; i < LED_CHANNELS; i++) pct[i] = 0;
   } else if (el >= dur) {
@@ -1085,11 +1110,13 @@ static void publishTelemetry() {
     tele.nightPct[i] = cfg.nightPct[i];
     tele.manualPct[i] = cfg.manualPct[i];
   }
-  tele.onH = cfg.onHour; tele.onM = cfg.onMin;
-  tele.offH = cfg.offHour; tele.offM = cfg.offMin;
-  tele.noffH = cfg.nightOffHour; tele.noffM = cfg.nightOffMin;
-  tele.ramp = cfg.rampMin; tele.days = cfg.daysMask;
-  tele.nightLenMin = nightLenMinutes();
+  for (uint8_t d = 0; d < 7; d++) tele.sched[d] = cfg.days[d];
+  tele.schedRev = schedRev;
+  {
+    time_t tnow = time(nullptr);
+    struct tm tmn; localtime_r(&tnow, &tmn);
+    tele.nightLenMin = nightLenFor(cfg.days[tmn.tm_wday & 0x07]);
+  }
   tele.alarms = alarms;
   strncpy(tele.alarmText, alarmText, sizeof(tele.alarmText) - 1);
   tele.alarmText[sizeof(tele.alarmText) - 1] = 0;
@@ -1173,9 +1200,19 @@ static int buildStateJson(char* out, size_t n) {
   for (uint8_t i = 0; i < LED_CHANNELS; i++) w += snprintf(out + w, n - w, "%s\"%s\"", i ? "," : "", LED_LABELS[i]);
   w += snprintf(out + w, n - w, "],\"nch\":%u", (unsigned)LED_CHANNELS);
 
-  snprintf(b, sizeof(b), ",\"on\":\"%02u:%02u\",\"off\":\"%02u:%02u\",\"noff\":\"%02u:%02u\",\"nlen\":%u,\"ramp\":%u,\"days\":%u",
-           t.onH, t.onM, t.offH, t.offM, t.noffH, t.noffM, (unsigned)t.nightLenMin, (unsigned)t.ramp, (unsigned)t.days);
-  w += snprintf(out + w, n - w, "%s", b);
+  /* расписание на каждый день: [вкл, рассвет, закат, ночник до, переход, ночник мин] */
+  w += snprintf(out + w, n - w, ",\"nlen\":%u,\"sv\":%u,\"sched\":[",
+                (unsigned)t.nightLenMin, (unsigned)t.schedRev);
+  for (uint8_t d = 0; d < 7; d++) {
+    const DaySchedule& ds = t.sched[d];
+    w += snprintf(out + w, n - w,
+                  "%s[%u,\"%02u:%02u\",\"%02u:%02u\",\"%02u:%02u\",%u,%u]",
+                  d ? "," : "", (unsigned)(ds.enabled ? 1 : 0),
+                  ds.onHour, ds.onMin, ds.offHour, ds.offMin,
+                  ds.nightHour, ds.nightMin, (unsigned)ds.rampMin,
+                  (unsigned)nightLenFor(ds));
+  }
+  w += snprintf(out + w, n - w, "]");
 
   w += snprintf(out + w, n - w, ",\"time\":\"%02u:%02u:%02u\",\"date\":\"%02u.%02u.%04u\",\"wd\":%u",
                 t.hour, t.minute, t.second, t.day, t.month, t.year, t.weekday);
@@ -1297,7 +1334,7 @@ static void httpSendPage(WiFiClient& c) {
 }
 
 static void httpSendState(WiFiClient& c) {
-  static char buf[2200];
+  static char buf[STATE_JSON_MAX];
   int n = buildStateJson(buf, sizeof(buf));
   httpSendHead(c, "200 OK", "application/json; charset=utf-8", n);
   c.write((const uint8_t*)buf, n);
@@ -1346,7 +1383,53 @@ static void httpSendScan(WiFiClient& c) {
    Плата сама скачивает .bin по адресу OTA_GITHUB_URL (config.h) и
    прошивается им. Ответ идёт без Content-Length, поэтому страница
    получает строки прогресса по мере скачивания:
-     S <этап>   I <размер>   P <процент>   D <готово>   E <ошибка>       */
+     V <версия>   N <1|0 новее?>   S <этап>   I <размер>
+     P <процент>  D <готово>       E <ошибка>                     */
+
+/* Сравнение версий вида "2.3.0": true, если a новее b */
+static bool versionNewer(const char* a, const char* b) {
+  if (!a || !b) return false;
+  for (uint8_t part = 0; part < 4; part++) {
+    int va = atoi(a), vb = atoi(b);
+    if (va != vb) return va > vb;
+    const char* pa = strchr(a, '.'); const char* pb = strchr(b, '.');
+    if (!pa && !pb) return false;
+    a = pa ? pa + 1 : "0";
+    b = pb ? pb + 1 : "0";
+  }
+  return false;
+}
+
+/* Читает файл версии с GitHub (маленький текстовый файл) */
+static bool fetchGithubVersion(char* out, size_t n) {
+#if ENABLE_GITHUB_VERSION
+  if (strlen(OTA_GITHUB_VERSION_URL) < 12) return false;
+  WiFiClientSecure tls;
+  tls.setInsecure();
+  HTTPClient http;
+  http.setTimeout(10000);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  if (!http.begin(tls, OTA_GITHUB_VERSION_URL)) return false;
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) { http.end(); return false; }
+  String body = http.getString();
+  http.end();
+  body.trim();
+  /* оставляем только цифры и точки, максимум 15 символов */
+  size_t k = 0;
+  for (size_t i = 0; i < body.length() && k < n - 1 && k < 15; i++) {
+    char ch = body[i];
+    if ((ch >= '0' && ch <= '9') || ch == '.') out[k++] = ch;
+    else if (k > 0) break;
+  }
+  out[k] = 0;
+  return k > 0;
+#else
+  (void)out; (void)n;
+  return false;
+#endif
+}
+
 #if ENABLE_GITHUB_OTA
 static void httpOtaGithub(WiFiClient& cs, bool dryRun) {
   char b[96];
@@ -1358,6 +1441,23 @@ static void httpOtaGithub(WiFiClient& cs, bool dryRun) {
     cs.print(F("E адрес прошивки не задан (OTA_GITHUB_URL в config.h)\n"));
     cs.flush();
     return;
+  }
+
+  /* 1. Сначала узнаём версию опубликованной прошивки */
+  char ver[16] = "";
+  cs.print(F("S проверяю версию на GitHub\n"));
+  cs.flush();
+  if (fetchGithubVersion(ver, sizeof(ver))) {
+    snprintf(b, sizeof(b), "V %s\n", ver);
+    cs.print(b);
+    snprintf(b, sizeof(b), "N %u\n", versionNewer(ver, FW_VERSION) ? 1u : 0u);
+    cs.print(b);
+    cs.flush();
+    Serial.print(F("[ota-gh] версия на GitHub: ")); Serial.print(ver);
+    Serial.print(F(", у меня: ")); Serial.println(F(FW_VERSION));
+  } else {
+    cs.print(F("V ?\n"));
+    cs.flush();
   }
 
   cs.print(F("S подключаюсь к GitHub\n"));
@@ -1548,6 +1648,16 @@ static void httpHandleCmd(WiFiClient& c, const char* query) {
                                 "timesync", "conf", "reset", "reboot", "scan", "water", "nightpct" };
   char val[40];
   int applied = 0;
+
+  /* расписание на 7 дней — длинная строка, поэтому передаём её мимо очереди */
+  static char sval[300];
+  if (getParam(query, "sched", sval, sizeof(sval))) {
+    snprintf(schedRequest, sizeof(schedRequest), "%s", sval);
+    schedApplyReq = true;
+    applied++;
+    Serial.println(F("[http] получено новое расписание света"));
+  }
+
   for (unsigned i = 0; i < sizeof(KEYS) / sizeof(KEYS[0]); i++) {
     if (getParam(query, KEYS[i], val, sizeof(val))) {
       enqueueCmd(KEYS[i], val);
@@ -1645,7 +1755,8 @@ static void ssePump(WiFiClient& c) {
 }
 
 static void httpServe(WiFiClient& c) {
-  char method[8], path[96], query[400];
+  static char method[8], path[96];
+  static char query[700];
   long clen = 0;
   if (!httpReadRequest(c, method, sizeof(method), path, sizeof(path), query, sizeof(query), &clen)) {
     c.stop(); return;
@@ -1794,11 +1905,26 @@ static void applyCmd(const char* key, const char* val) {
       if (ch >= 0 && ch < LED_CHANNELS) { cfg.nightPct[ch] = (uint8_t)clampf((float)pct, 0, 100); cfgDirty = true; } }
   }
   else if (!strcmp(key, "nightpct")) { cfg.nightPct[0] = (uint8_t)clampf(atof(val), 0, 100); cfgDirty = true; }
-  else if (!strcmp(key, "on"))    { uint8_t h, m; if (parseHM(val, h, m)) { cfg.onHour = h; cfg.onMin = m; cfgDirty = true; } }
-  else if (!strcmp(key, "off"))   { uint8_t h, m; if (parseHM(val, h, m)) { cfg.offHour = h; cfg.offMin = m; cfgDirty = true; } }
-  else if (!strcmp(key, "noff"))  { uint8_t h, m; if (parseHM(val, h, m)) { cfg.nightOffHour = h; cfg.nightOffMin = m; cfgDirty = true; } }
-  else if (!strcmp(key, "ramp"))  { cfg.rampMin = (uint8_t)clampf(atof(val), 1, 180); cfgDirty = true; }
-  else if (!strcmp(key, "days"))  { cfg.daysMask = (uint8_t)(atoi(val) & 0x7F); cfgDirty = true; }
+  /* старые одиночные параметры: применяем ко всем дням (совместимость и быстрые правки) */
+  else if (!strcmp(key, "on") || !strcmp(key, "off") || !strcmp(key, "noff") || !strcmp(key, "ramp")) {
+    uint8_t h = 0, m = 0;
+    bool isTime = parseHM(val, h, m);
+    for (uint8_t d = 0; d < 7; d++) {
+      DaySchedule& ds = cfg.days[d];
+      if (!strcmp(key, "on") && isTime)        { ds.onHour = h; ds.onMin = m; }
+      else if (!strcmp(key, "off") && isTime)  { ds.offHour = h; ds.offMin = m; }
+      else if (!strcmp(key, "noff") && isTime) { ds.nightHour = h; ds.nightMin = m; }
+      else if (!strcmp(key, "ramp"))           { ds.rampMin = (uint8_t)clampf(atof(val), 1, 180); }
+    }
+    schedRev++;
+    cfgDirty = true;
+  }
+  else if (!strcmp(key, "days")) {
+    uint8_t mask = (uint8_t)(atoi(val) & 0x7F);
+    for (uint8_t d = 0; d < 7; d++) cfg.days[d].enabled = (mask >> d) & 0x01;
+    schedRev++;
+    cfgDirty = true;
+  }
   else if (!strcmp(key, "scan"))  { sensorMap(); printSensorList(); }
   else if (!strcmp(key, "water")) {
     long idx = atol(val);
@@ -1816,9 +1942,73 @@ static void applyCmd(const char* key, const char* val) {
   }
 }
 
+/* Разбор расписания, пришедшего со страницы:
+   по одному дню в группе «вкл,рассвет,закат,ночник,переход», группы через «;»
+   пример: 1,0800,2000,2300,40;0,0900,1900,2300,30;...  (7 групп, 0 — воскресенье) */
+static bool schedParse(const char* s) {
+  if (!s || !*s) return false;
+  DaySchedule tmp[7];
+  for (uint8_t d = 0; d < 7; d++) tmp[d] = cfg.days[d];
+
+  const char* p = s;
+  uint8_t day = 0, parsed = 0;
+  while (*p && day < 7) {
+    char group[40];
+    size_t gi = 0;
+    while (*p && *p != ';' && gi < sizeof(group) - 1) group[gi++] = *p++;
+    group[gi] = 0;
+    if (*p == ';') p++;
+
+    char* f[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
+    int nf = 0;
+    f[nf++] = group;
+    for (char* q = group; *q && nf < 5; q++) if (*q == ',') { *q = 0; f[nf++] = q + 1; }
+    if (nf < 5) continue;
+
+    DaySchedule& ds = tmp[day];
+    ds.enabled = atoi(f[0]) ? 1 : 0;
+    long on = atol(f[1]), off = atol(f[2]), nl = atol(f[3]);
+    ds.onHour = (uint8_t)clampf((float)(on / 100), 0, 23);   ds.onMin = (uint8_t)clampf((float)(on % 100), 0, 59);
+    ds.offHour = (uint8_t)clampf((float)(off / 100), 0, 23); ds.offMin = (uint8_t)clampf((float)(off % 100), 0, 59);
+    ds.nightHour = (uint8_t)clampf((float)(nl / 100), 0, 23);ds.nightMin = (uint8_t)clampf((float)(nl % 100), 0, 59);
+    ds.rampMin = (uint8_t)clampf(atof(f[4]), 1, 180);
+    day++; parsed++;
+  }
+  if (parsed == 0) return false;
+  for (uint8_t d = 0; d < 7; d++) cfg.days[d] = tmp[d];
+  schedRev++;
+  cfgDirty = true;
+  return true;
+}
+
 static void applyCommands() {
   CmdMsg m;
   int ch = -1, pct = -1;                 // для пары lch/lval
+  /* расписание приходит длинной строкой — обрабатываем до очереди */
+  if (schedApplyReq) {
+    schedApplyReq = false;
+    if (schedParse(schedRequest)) {
+      Serial.print(F("[свет] расписание сохранено: "));
+      for (uint8_t d = 0; d < 7; d++) {
+        const DaySchedule& ds = cfg.days[d];
+        if (!ds.enabled) continue;
+        Serial.print((unsigned)ds.onHour); Serial.print(':');
+        if (ds.onMin < 10) Serial.print('0');
+        Serial.print((unsigned)ds.onMin); Serial.print('-');
+        Serial.print((unsigned)ds.offHour); Serial.print(':');
+        if (ds.offMin < 10) Serial.print('0');
+        Serial.print((unsigned)ds.offMin);
+        Serial.print('/');
+        Serial.print((unsigned)ds.nightHour); Serial.print(':');
+        if (ds.nightMin < 10) Serial.print('0');
+        Serial.print((unsigned)ds.nightMin);
+        Serial.print(' ');
+      }
+      Serial.println();
+    } else {
+      Serial.println(F("[свет] расписание не разобрано, оставляю прежнее"));
+    }
+  }
   while (xQueueReceive(cmdQueue, &m, 0) == pdTRUE) {
     if (!strcmp(m.key, "lch")) { ch = atoi(m.val); continue; }
     if (!strcmp(m.key, "lval")) { pct = atoi(m.val); continue; }
@@ -1931,12 +2121,19 @@ static void printConfigSummary() {
   Serial.print(F(", каналов ")); Serial.print((unsigned)LED_CHANNELS);
   Serial.print(F(", ШИМ ")); Serial.print((unsigned)LED_PWM_FREQ / 1000);
   Serial.print(F(" кГц / ")); Serial.print((unsigned)LED_PWM_BITS); Serial.println(F(" бит"));
-  snprintf(b, sizeof(b), "   %02u:%02u-%02u:%02u", cfg.onHour, cfg.onMin, cfg.offHour, cfg.offMin);
-  Serial.print(F("   расписание      :")); Serial.println(b);
-  Serial.print(F("  ночник          : ")); Serial.print((unsigned)cfg.nightPct[0]); Serial.print(F("% до "));
-  snprintf(b, sizeof(b), "%02u:%02u", cfg.nightOffHour, cfg.nightOffMin);
-  Serial.print(b); Serial.print(F(" (")); Serial.print((unsigned)(nightLenMinutes() / 60));
-  Serial.println(F(" ч), дальше темнота"));
+  Serial.println(F("  расписание света (по дням):"));
+  for (uint8_t d = 0; d < 7; d++) {
+    const DaySchedule& ds = cfg.days[d];
+    Serial.print(F("     "));
+    Serial.print(DAY_NAMES[d]);
+    Serial.print(F("  "));
+    if (!ds.enabled) { Serial.println(F("выходной — свет не включается")); continue; }
+    snprintf(b, sizeof(b), "%02u:%02u-%02u:%02u  ночник до %02u:%02u  переход %u мин",
+             ds.onHour, ds.onMin, ds.offHour, ds.offMin, ds.nightHour, ds.nightMin, (unsigned)ds.rampMin);
+    Serial.print(b);
+    Serial.print(F("  (ночник ")); Serial.print((unsigned)(nightLenFor(ds) / 60)); Serial.println(F(" ч)"));
+  }
+  Serial.print(F("  ночник          : ")); Serial.print((unsigned)cfg.nightPct[0]); Serial.println(F("% яркости"));
   Serial.print(F("  термостат       : "));
   fmtF(b, sizeof(b), cfg.setpoint, 1); Serial.print(b);
   Serial.print(F(" ± ")); fmtF(b, sizeof(b), cfg.hyst, 1); Serial.print(b);

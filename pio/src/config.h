@@ -8,7 +8,7 @@
 #pragma once
 
 #define FW_NAME      "Aquarium ESP32-S3"
-#define FW_VERSION   "2.2.1"     // 2.2.1 — Wi-Fi со страницы, обновление с GitHub по кнопке
+#define FW_VERSION   "2.3.0"     // 2.3.0 — расписание света по дням, версия обновления на странице
 
 /* ---------------------------------------------------------------------
    1. Wi-Fi
@@ -137,6 +137,11 @@
    --------------------------------------------------------------------- */
 #define ENABLE_GITHUB_OTA    1
 #define OTA_GITHUB_URL       "https://raw.githubusercontent.com/karolsonchik93/AquariumAi-esp32-s3/main/build/prebuilt/aquarium_esp32s3.bin"
+
+/* Файл с номером версии — по нему страница показывает, что именно нашлось на GitHub.
+   В репозитории это build/prebuilt/version.txt с содержимым вида «2.3.0». */
+#define ENABLE_GITHUB_VERSION 1
+#define OTA_GITHUB_VERSION_URL "https://raw.githubusercontent.com/karolsonchik93/AquariumAi-esp32-s3/main/build/prebuilt/version.txt"
 
 #define HISTORY_HOURS        24       // глубина истории, часов (хранится в PSRAM)
 #define HISTORY_PERIOD_S     15       // шаг записи, секунд
