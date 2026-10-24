@@ -586,16 +586,11 @@ body.night .card{background:rgba(255,255,255,.03)}
         <button class="btn ghost" onclick="cmd('timesync=1','запрос времени у NTP')">Синхронизировать время</button>
         <button class="btn ghost" onclick="cmd('scan=1','поиск датчиков')">Найти датчики</button>
         <button class="btn ghost" onclick="showSensors()">Адреса датчиков</button>
+        <button class="btn" onclick="setTimeFromBrowser()">Взять время с этого устройства</button>
         <button class="btn ghost" onclick="cmd('conf=1','настройки сохранены')">Сохранить настройки</button>
         <button class="btn ghost danger" onclick="if(confirm('Сбросить настройки к заводским?'))cmd('reset=1','сброс настроек')">Сброс</button>
         <button class="btn ghost danger" onclick="if(confirm('Перезагрузить плату?'))cmd('reboot=1','перезагрузка')">Перезагрузка</button>
       </div>
-      <div class="drop" id="drop" style="margin-top:14px">
-        <b>Обновление файлом по воздуху</b><br>
-        перетащите сюда файл <code>firmware.bin</code> или нажмите, чтобы выбрать
-        <input type="file" id="fwfile" accept=".bin" style="display:none">
-      </div>
-      <div class="prog" id="prog"><i id="progFill"></i></div>
     </div>
   </details>
 </section>
@@ -772,13 +767,16 @@ function applyHeat(){ cmd('set='+$('sp').value+'&hyst='+$('hy').value+'&maxt='+$
 function applyFan(){ cmd('fanon='+$('fanon').value+'&fanhy='+$('fanhy').value,'вентилятор обновлён'); }
 
 /* ---------- расписание света по дням ---------- */
+/* порядок показа — с понедельника; 0 в данных платы это воскресенье (tm_wday) */
+var DAY_ORDER=[1,2,3,4,5,6,0];
 function openSched(){
   var d=$('accSched');
   if(d){ d.open=true; d.scrollIntoView({behavior:'smooth',block:'center'}); }
 }
 function buildSched(){
   var h='';
-  for(var d=0;d<7;d++){
+  for(var i=0;i<7;i++){
+    var d=DAY_ORDER[i];
     h+='<div class="srow" id="srow'+d+'">'
       +'<label class="sday"><input type="checkbox" id="sen'+d+'" onchange="schedTouched()"><b>'+WD[d]+'</b></label>'
       +'<label class="sf">Рассвет<input type="time" id="son'+d+'" onchange="schedTouched()"></label>'
@@ -1106,7 +1104,9 @@ function render(){
   $('d-rssi').innerHTML=(S.ap?'—':bars(S.rssi)+(S.rssi||0)+' дБм');
   $('d-host').innerHTML=(S.host||'—')+(S.ap?'':'<span style="color:var(--mute)">.local</span>');
   $('d-up').textContent=fmtDur(S.up);
-  $('d-time').textContent=(S.time||'')+' '+(S.date||'')+' · '+(S.tsrc==='ntp'?'NTP':(S.tsrc==='approx'?'приблизительно':'время сборки'));
+  var tsrcMap={ntp:'NTP',browser:'с устройства',approx:'из памяти платы',build:'время сборки'};
+  $('d-time').textContent=(S.time||'')+' '+(S.date||'')+' · '+(tsrcMap[S.tsrc]||S.tsrc||'—')+
+    (S.wd!==undefined?(' · '+WD[S.wd]):'');
   $('d-sen').textContent=S.nsen+' шт · вода '+(S.tok?'есть':'НЕТ')+' · воздух '+(S.aok?'есть':'НЕТ');
   $('d-nvm').textContent=S.nvm?'сохранены':'по умолчанию';
   $('d-fw').textContent='v'+(S.fw||'?')+(S.wd?' · WDT':'');
@@ -1198,31 +1198,10 @@ function drawChart(){
 }
 window.addEventListener('resize',function(){ drawChart(); });
 
-/* ---------- OTA ---------- */
-function otaUpload(file){
-  if(!file) return;
-  if(!/\.bin$/i.test(file.name)){ toast('нужен файл .bin','err'); return; }
-  if(!confirm('Прошить файл '+file.name+' ('+Math.round(file.size/1024)+' КБ)? Плата перезагрузится.')) return;
-  $('prog').classList.add('show');
-  var xhr=new XMLHttpRequest();
-  xhr.open('POST','/api/ota',true);
-  xhr.setRequestHeader('Content-Type','application/octet-stream');
-  xhr.upload.onprogress=function(e){ if(e.lengthComputable) $('progFill').style.width=(e.loaded/e.total*100)+'%'; };
-  xhr.onload=function(){
-    toast(xhr.status===200?'прошивка обновлена — плата перезагружается':'ошибка обновления: '+xhr.responseText,
-          xhr.status===200?'ok':'err');
-    setTimeout(function(){ $('prog').classList.remove('show'); $('progFill').style.width='0%'; },3000);
-  };
-  xhr.onerror=function(){ toast('не удалось передать файл','err'); $('prog').classList.remove('show'); };
-  xhr.send(file);
-}
-function initDrop(){
-  var d=$('drop'), inp=$('fwfile');
-  d.addEventListener('click',function(){ inp.click(); });
-  inp.addEventListener('change',function(){ if(inp.files.length) otaUpload(inp.files[0]); });
-  ['dragenter','dragover'].forEach(function(ev){ d.addEventListener(ev,function(e){ e.preventDefault(); d.classList.add('over'); }); });
-  ['dragleave','drop'].forEach(function(ev){ d.addEventListener(ev,function(e){ e.preventDefault(); d.classList.remove('over'); }); });
-  d.addEventListener('drop',function(e){ if(e.dataTransfer.files.length) otaUpload(e.dataTransfer.files[0]); });
+/* ---------- время с устройства ---------- */
+function setTimeFromBrowser(){
+  var ep=Math.floor(Date.now()/1000);
+  cmd('tset='+ep,'время взято с этого устройства: '+new Date().toLocaleString());
 }
 /* рябь на кнопках */
 document.addEventListener('click',function(e){
@@ -1250,7 +1229,7 @@ setInterval(function(){ if(!S||Date.now()-lastOk>6000) poll(); },5000);
 setInterval(function(){ if(Date.now()-lastOk<6000) fetchHistory(); },60000);
 
 window.addEventListener('load',function(){
-  buildHero(); buildBubbles(); buildHeatwaves(); initDrop();
+  buildHero(); buildBubbles(); buildHeatwaves();
   connect(); poll(); fetchHistory();
   setTimeout(function(){ if(!S) fetchHistory(); },1500);
 });

@@ -10,7 +10,7 @@
      + два DS18B20 (вода и воздух), часы NTP, веб-сервер с живым интерфейсом,
        история температур в PSRAM, журнал циклов, OTA-обновление по воздуху.
 
-   Что даёт ESP32-S3 по сравнению с MKR WiFi 1010:
+   Что даёт эта плата:
      • два ядра: управление аквариумом живёт на своём ядре и не зависит от веб-сервера;
      • 8 МБ PSRAM — история температур на сутки и больше;
      • настоящий mDNS: http://aquarium.local;
@@ -43,6 +43,14 @@
   #define HAVE_RGB_LED 1
 #else
   #define HAVE_RGB_LED 0
+#endif
+
+/* статус SNTP — единственный надёжный признак «время пришло из сети» */
+#if __has_include(<esp_sntp.h>)
+  #include <esp_sntp.h>
+  #define HAVE_SNTP_STATUS 1
+#else
+  #define HAVE_SNTP_STATUS 0
 #endif
 
 #include "config.h"
@@ -162,7 +170,7 @@ struct Telemetry {
   uint32_t epoch;
   uint8_t  hour, minute, second, day, month, weekday;
   uint16_t year;
-  bool     timeFromNtp, timeApprox;
+  bool     timeFromNtp, timeApprox, timeFromBrowser;
   char     ip[16], gw[16], ssid[33];
   char     wifiSsid[33], wifiStatus[10];
   bool     apMode, staConnected, wifiCustom;
@@ -249,7 +257,10 @@ static uint32_t wifiTryingSince = 0;       // с какого момента п�
 
 static uint32_t httpRequests = 0, httpCmds = 0;
 static esp_reset_reason_t resetReason = ESP_RST_UNKNOWN;
-static bool timeApprox = false;
+/* Откуда взято время: 0 — время сборки, 1 — из памяти платы, 2 — NTP, 3 — задано со страницы.
+   Меньше NTP значит «день недели может быть неверным», это и показываем в интерфейсе. */
+static const uint8_t TIME_BUILD = 0, TIME_NVS = 1, TIME_NTP = 2, TIME_BROWSER = 3;
+static uint8_t timeSrc = TIME_BUILD;
 
 /* сеть */
 static WiFiServer server(HTTP_PORT);
@@ -473,10 +484,10 @@ static void timeBegin() {
   if (saved > 1700000000UL) {
     struct timeval tv = { (time_t)saved, 0 };
     settimeofday(&tv, nullptr);
-    timeApprox = true;
-    Serial.println(F("[time] часы восстановлены из памяти (приблизительно, до синхронизации NTP)"));
+    timeSrc = TIME_NVS;
+    Serial.println(F("[time] часы восстановлены из памяти; точное время — по NTP или кнопкой на странице"));
   } else {
-    /* если совсем нечего взять — время компиляции */
+    /* если совсем нечего взять — время компиляции (день недели может быть неверным) */
     const char* d = __DATE__; const char* t = __TIME__;
     static const char* mon = "JanFebMarAprMayJunJulAugSepOctNovDec";
     int month = 1;
@@ -491,25 +502,42 @@ static void timeBegin() {
     time_t epoch = mktime(&tmv) - (time_t)TZ_OFFSET_MIN * 60;
     struct timeval tv = { epoch, 0 };
     settimeofday(&tv, nullptr);
-    timeApprox = true;
-    Serial.println(F("[time] часы выставлены по времени компиляции (NTP ещё не ответил)"));
+    timeSrc = TIME_BUILD;
+    Serial.println(F("[time] часы выставлены по времени компиляции: день недели может быть неверным, задайте время с сайта"));
   }
   configTime((long)TZ_OFFSET_MIN * 60, 0, NTP_SERVER_1, NTP_SERVER_2);
+}
+
+/* Установить время вручную (например, кнопкой «взять время с телефона») */
+static void timeSetEpoch(uint32_t epoch, uint8_t src) {
+  if (epoch < 1700000000UL) return;
+  struct timeval tv = { (time_t)epoch, 0 };
+  settimeofday(&tv, nullptr);
+  timeSrc = src;
+  prefs.putUInt("epoch", epoch);
+  Serial.print(F("[time] время установлено (")); Serial.print(src == TIME_BROWSER ? F("с сайта") : F("вручную"));
+  Serial.print(F("): ")); Serial.println(epoch);
 }
 
 static void timeTask() {
   static uint32_t lastSave = 0, lastTry = 0;
   uint32_t now = millis();
 
-  /* если Wi-Fi поднят, раз в 30 секунд пробуем добрать время по NTP */
-  if ((WiFi.status() == WL_CONNECTED) && (timeApprox || (now - lastTry) > 600000UL)) {
+  /* раз в 30 секунд проверяем, не ответил ли NTP */
+  if ((WiFi.status() == WL_CONNECTED) && (timeSrc < TIME_NTP || (now - lastTry) > 600000UL)) {
     if (now - lastTry > 30000UL) {
       lastTry = now;
+#if HAVE_SNTP_STATUS
+      /* надёжный признак: SNTP реально получил ответ */
+      bool synced = (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED);
+#else
       struct tm tmv;
-      if (getLocalTime(&tmv, 10)) {
-        if (tmv.tm_year > 120) {                 // год больше 2020 — время достоверное
-          if (timeApprox) Serial.println(F("[time] NTP синхронизирован"));
-          timeApprox = false;
+      bool synced = getLocalTime(&tmv, 10) && tmv.tm_year > 123;
+#endif
+      if (synced) {
+        if (timeSrc < TIME_NTP) {
+          Serial.println(F("[time] NTP синхронизирован — дата и день недели верные"));
+          timeSrc = TIME_NTP;
         }
       }
     }
@@ -1128,8 +1156,9 @@ static void publishTelemetry() {
   tele.hour = tmv.tm_hour; tele.minute = tmv.tm_min; tele.second = tmv.tm_sec;
   tele.day = tmv.tm_mday; tele.month = tmv.tm_mon + 1; tele.year = tmv.tm_year + 1900;
   tele.weekday = tmv.tm_wday;
-  tele.timeFromNtp = !timeApprox;
-  tele.timeApprox = timeApprox;
+  tele.timeFromNtp = (timeSrc == TIME_NTP);
+  tele.timeFromBrowser = (timeSrc == TIME_BROWSER);
+  tele.timeApprox = (timeSrc <= TIME_NVS);
 
   strncpy(tele.ip, ipStr, sizeof(tele.ip) - 1); tele.ip[sizeof(tele.ip) - 1] = 0;
   strncpy(tele.gw, gwStr, sizeof(tele.gw) - 1); tele.gw[sizeof(tele.gw) - 1] = 0;
@@ -1217,7 +1246,7 @@ static int buildStateJson(char* out, size_t n) {
   w += snprintf(out + w, n - w, ",\"time\":\"%02u:%02u:%02u\",\"date\":\"%02u.%02u.%04u\",\"wd\":%u",
                 t.hour, t.minute, t.second, t.day, t.month, t.year, t.weekday);
   w += snprintf(out + w, n - w, ",\"tsrc\":\"%s\",\"ip\":\"%s\",\"gw\":\"%s\",\"ssid\":\"%s\",\"host\":\"%s\",\"ap\":%u,\"rssi\":%ld",
-                t.timeFromNtp ? "ntp" : (t.timeApprox ? "approx" : "build"),
+                t.timeFromNtp ? "ntp" : (t.timeFromBrowser ? "browser" : (t.timeApprox ? "approx" : "build")),
                 t.ip, t.gw, t.ssid, WIFI_HOSTNAME, t.apMode ? 1 : 0, (long)t.rssi);
   w += snprintf(out + w, n - w, ",\"wssid\":\"%s\",\"wst\":\"%s\",\"wcustom\":%u",
                 t.wifiSsid, t.wifiStatus, t.wifiCustom ? 1 : 0);
@@ -1645,7 +1674,7 @@ static void httpHandleCmd(WiFiClient& c, const char* query) {
                                 "set", "hyst", "maxt", "fanon", "fanhy", "pw",
                                 "lmode", "lch", "lval", "lday", "lnight",
                                 "on", "off", "noff", "ramp", "days",
-                                "timesync", "conf", "reset", "reboot", "scan", "water", "nightpct" };
+                                "timesync", "tset", "conf", "reset", "reboot", "scan", "water", "nightpct" };
   char val[40];
   int applied = 0;
 
@@ -1931,7 +1960,12 @@ static void applyCmd(const char* key, const char* val) {
     DeviceAddress a;
     if (ds.getAddress(a, (uint8_t)idx)) { memcpy(cfg.waterRom, a, 8); cfgDirty = true; sensorMap(); }
   }
-  else if (!strcmp(key, "timesync")) { timeApprox = true; timeTask(); }
+  else if (!strcmp(key, "timesync")) { timeTask(); Serial.println(F("[time] запросил время у NTP")); }
+  else if (!strcmp(key, "tset")) {
+    /* время пришло из браузера: гарантированно верные дата и день недели */
+    uint32_t ep = (uint32_t)strtoul(val, nullptr, 10);
+    timeSetEpoch(ep, TIME_BROWSER);
+  }
   else if (!strcmp(key, "conf"))  { settingsSaveNow(); }
   else if (!strcmp(key, "reset")) { settingsDefaults(); settingsSaveNow(); sensorMap(); }
   else if (!strcmp(key, "reboot")) {
@@ -2226,7 +2260,7 @@ static void cliTask() {
       Serial.println(F("[тест] готово"));
       break;
     }
-    case 'n': timeApprox = true; timeTask(); Serial.println(F("[time] запросил время у NTP")); break;
+    case 'n': timeTask(); Serial.println(F("[time] запросил время у NTP")); break;
     case 'l':
       cfg.lightMode = (uint8_t)((cfg.lightMode + 1) % 3);
       cfgDirty = true;
@@ -2416,9 +2450,9 @@ void loop() {
   /* суточный сброс счётчика энергии */
   if (tele.day != lastDay) { lastDay = tele.day; heatMsToday = 0; }
 
-  /* предупреждение о времени */
-  if (timeApprox && millis() > 120000UL) alarms |= AL_NO_TIME;
-  else if (!timeApprox) alarms &= (uint8_t)~AL_NO_TIME;
+  /* предупреждение о времени: пока источник — сборка или память, день недели может врать */
+  if (timeSrc <= TIME_NVS && millis() > 120000UL) alarms |= AL_NO_TIME;
+  else if (timeSrc > TIME_NVS) alarms &= (uint8_t)~AL_NO_TIME;
 
   /* сводка в монитор порта */
   if (now - lastHeartbeat >= LOG_HEARTBEAT_MS) {
