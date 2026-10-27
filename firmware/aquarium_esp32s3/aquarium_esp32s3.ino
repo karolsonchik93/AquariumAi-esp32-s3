@@ -279,7 +279,7 @@ static uint8_t timeSrc = TIME_BUILD;
 static WiFiServer server(HTTP_PORT);
 static WiFiClient sseClient;
 static uint32_t sseLast = 0;
-#define STATE_JSON_MAX 3000
+#define STATE_JSON_MAX 4200
 static char sseJson[STATE_JSON_MAX];
 
 /* заявки на изменение расписания (приходят длинной строкой, поэтому минуют очередь) */
@@ -369,6 +369,24 @@ static float clampf(float v, float lo, float hi) {
   if (v < lo) return lo;
   if (v > hi) return hi;
   return v;
+}
+
+/* Безопасное дописывание в буфер JSON.
+   snprintf возвращает длину, которая БЫЛА БЫ записана: если просто делать
+   w += snprintf(out + w, n - w, ...), то при переполнении n - w уходит в
+   беззнаковый минус и запись уезжает за границу буфера. Здесь этого не может
+   быть: как только места нет — молча обрезаем и запоминаем флаг. */
+static bool jsonTruncated = false;
+static void addf(char* out, size_t n, int& w, const char* fmt, ...) {
+  if (w < 0) w = 0;
+  if (n < 2 || (size_t)w >= n - 1) { jsonTruncated = true; return; }
+  va_list ap;
+  va_start(ap, fmt);
+  int r = vsnprintf(out + w, n - w, fmt, ap);
+  va_end(ap);
+  if (r < 0) { jsonTruncated = true; return; }
+  w += r;
+  if ((size_t)w > n - 1) { w = (int)(n - 1); jsonTruncated = true; }
 }
 
 /* Своё форматирование float: компактный JSON и независимость от libc */
@@ -1262,72 +1280,74 @@ static int buildStateJson(char* out, size_t n) {
   }
   char b[64], s1[24], s2[24], s3[24];
   int w = 0;
-  w += snprintf(out + w, n - w, "{\"ok\":1,\"fw\":\"" FW_VERSION "\",\"name\":\"" FW_NAME "\",\"seq\":%lu",
+  jsonTruncated = false;
+  if (n > 0) out[0] = 0;
+  addf(out, n, w, "{\"ok\":1,\"fw\":\"" FW_VERSION "\",\"name\":\"" FW_NAME "\",\"seq\":%lu",
                 (unsigned long)t.seq);
-  w += snprintf(out + w, n - w, ",\"up\":%lu,\"heap\":%lu,\"psram\":%lu",
+  addf(out, n, w, ",\"up\":%lu,\"heap\":%lu,\"psram\":%lu",
                 (unsigned long)t.uptimeSec, (unsigned long)t.freeHeap, (unsigned long)t.psramSize);
   fmtF(s1, sizeof(s1), t.water, 2); fmtF(s2, sizeof(s2), t.air, 2); fmtF(s3, sizeof(s3), t.waterShown, 2);
-  w += snprintf(out + w, n - w, ",\"t\":%s,\"ta\":%s,\"tf\":%s,\"tok\":%u,\"aok\":%u,\"nsen\":%u",
+  addf(out, n, w, ",\"t\":%s,\"ta\":%s,\"tf\":%s,\"tok\":%u,\"aok\":%u,\"nsen\":%u",
                 s1, s2, s3, t.waterOk ? 1 : 0, t.airOk ? 1 : 0, (unsigned)t.sensorCount);
-  w += snprintf(out + w, n - w, ",\"pump\":%u,\"air\":%u,\"fan\":%u,\"heat\":%u,\"hlock\":%u,\"hl\":%lu",
+  addf(out, n, w, ",\"pump\":%u,\"air\":%u,\"fan\":%u,\"heat\":%u,\"hlock\":%u,\"hl\":%lu",
                 t.pump ? 1 : 0, t.airOn ? 1 : 0, t.fan ? 1 : 0, t.heat ? 1 : 0,
                 t.heaterLocked ? 1 : 0, (unsigned long)t.heaterOnSec);
-  w += snprintf(out + w, n - w, ",\"fanmode\":%u,\"heatmode\":%u,\"feed\":%lu,\"fmin\":%u",
+  addf(out, n, w, ",\"fanmode\":%u,\"heatmode\":%u,\"feed\":%lu,\"fmin\":%u",
                 (unsigned)t.fanMode, (unsigned)t.heatMode, (unsigned long)t.feedLeft, (unsigned)t.feedMin);
   fmtF(s1, sizeof(s1), t.setpoint, 1); fmtF(s2, sizeof(s2), t.hyst, 2); fmtF(s3, sizeof(s3), t.maxWaterTemp, 1);
-  w += snprintf(out + w, n - w, ",\"sp\":%s,\"hy\":%s,\"maxt\":%s", s1, s2, s3);
+  addf(out, n, w, ",\"sp\":%s,\"hy\":%s,\"maxt\":%s", s1, s2, s3);
   fmtF(s1, sizeof(s1), t.fanOn, 1); fmtF(s2, sizeof(s2), t.fanHyst, 2); fmtF(s3, sizeof(s3), t.heaterPowerW, 0);
-  w += snprintf(out + w, n - w, ",\"fanon\":%s,\"fanhy\":%s,\"pw\":%s", s1, s2, s3);
-  w += snprintf(out + w, n - w, ",\"kwh\":%lu,\"kwhd\":%lu,\"est\":%lu",
+  addf(out, n, w, ",\"fanon\":%s,\"fanhy\":%s,\"pw\":%s", s1, s2, s3);
+  addf(out, n, w, ",\"kwh\":%lu,\"kwhd\":%lu,\"est\":%lu",
                 (unsigned long)(t.kwhTotal * 100.0f), (unsigned long)(t.kwhToday * 100.0f),
                 (unsigned long)t.estSec);
-  w += snprintf(out + w, n - w, ",\"lmod\":%u,\"phase\":\"%s\",\"lp\":[", (unsigned)t.lightMode,
+  addf(out, n, w, ",\"lmod\":%u,\"phase\":\"%s\",\"lp\":[", (unsigned)t.lightMode,
                 PHASE_NAMES[t.phase <= 4 ? t.phase : 0]);
-  for (uint8_t i = 0; i < LED_CHANNELS; i++) w += snprintf(out + w, n - w, "%s%u", i ? "," : "", (unsigned)t.ledPct[i]);
-  w += snprintf(out + w, n - w, "],\"day\":[");
-  for (uint8_t i = 0; i < LED_CHANNELS; i++) w += snprintf(out + w, n - w, "%s%u", i ? "," : "", (unsigned)t.dayPct[i]);
-  w += snprintf(out + w, n - w, "],\"night\":[");
-  for (uint8_t i = 0; i < LED_CHANNELS; i++) w += snprintf(out + w, n - w, "%s%u", i ? "," : "", (unsigned)t.nightPct[i]);
-  w += snprintf(out + w, n - w, "],\"man\":[");
-  for (uint8_t i = 0; i < LED_CHANNELS; i++) w += snprintf(out + w, n - w, "%s%u", i ? "," : "", (unsigned)t.manualPct[i]);
-  w += snprintf(out + w, n - w, "],\"labels\":[");
-  for (uint8_t i = 0; i < LED_CHANNELS; i++) w += snprintf(out + w, n - w, "%s\"%s\"", i ? "," : "", LED_LABELS[i]);
-  w += snprintf(out + w, n - w, "],\"nch\":%u", (unsigned)LED_CHANNELS);
+  for (uint8_t i = 0; i < LED_CHANNELS; i++) addf(out, n, w, "%s%u", i ? "," : "", (unsigned)t.ledPct[i]);
+  addf(out, n, w, "],\"day\":[");
+  for (uint8_t i = 0; i < LED_CHANNELS; i++) addf(out, n, w, "%s%u", i ? "," : "", (unsigned)t.dayPct[i]);
+  addf(out, n, w, "],\"night\":[");
+  for (uint8_t i = 0; i < LED_CHANNELS; i++) addf(out, n, w, "%s%u", i ? "," : "", (unsigned)t.nightPct[i]);
+  addf(out, n, w, "],\"man\":[");
+  for (uint8_t i = 0; i < LED_CHANNELS; i++) addf(out, n, w, "%s%u", i ? "," : "", (unsigned)t.manualPct[i]);
+  addf(out, n, w, "],\"labels\":[");
+  for (uint8_t i = 0; i < LED_CHANNELS; i++) addf(out, n, w, "%s\"%s\"", i ? "," : "", LED_LABELS[i]);
+  addf(out, n, w, "],\"nch\":%u", (unsigned)LED_CHANNELS);
 
   /* расписание на каждый день: [вкл, рассвет, закат, ночник до, переход, ночник мин] */
-  w += snprintf(out + w, n - w, ",\"nlen\":%u,\"sv\":%u,\"sched\":[",
+  addf(out, n, w, ",\"nlen\":%u,\"sv\":%u,\"sched\":[",
                 (unsigned)t.nightLenMin, (unsigned)t.schedRev);
   for (uint8_t d = 0; d < 7; d++) {
     const DaySchedule& ds = t.sched[d];
-    w += snprintf(out + w, n - w,
+    addf(out, n, w,
                   "%s[%u,\"%02u:%02u\",\"%02u:%02u\",\"%02u:%02u\",%u,%u]",
                   d ? "," : "", (unsigned)(ds.enabled ? 1 : 0),
                   ds.onHour, ds.onMin, ds.offHour, ds.offMin,
                   ds.nightHour, ds.nightMin, (unsigned)ds.rampMin,
                   (unsigned)nightLenFor(ds));
   }
-  w += snprintf(out + w, n - w, "]");
+  addf(out, n, w, "]");
 
-  w += snprintf(out + w, n - w, ",\"time\":\"%02u:%02u:%02u\",\"date\":\"%02u.%02u.%04u\",\"wd\":%u",
+  addf(out, n, w, ",\"time\":\"%02u:%02u:%02u\",\"date\":\"%02u.%02u.%04u\",\"wd\":%u",
                 t.hour, t.minute, t.second, t.day, t.month, t.year, t.weekday);
-  w += snprintf(out + w, n - w, ",\"tsrc\":\"%s\",\"ip\":\"%s\",\"gw\":\"%s\",\"ssid\":\"%s\",\"host\":\"%s\",\"ap\":%u,\"rssi\":%ld",
+  addf(out, n, w, ",\"tsrc\":\"%s\",\"ip\":\"%s\",\"gw\":\"%s\",\"ssid\":\"%s\",\"host\":\"%s\",\"ap\":%u,\"rssi\":%ld",
                 t.timeFromNtp ? "ntp" : (t.timeFromBrowser ? "browser" : (t.timeApprox ? "approx" : "build")),
                 t.ip, t.gw, t.ssid, WIFI_HOSTNAME, t.apMode ? 1 : 0, (long)t.rssi);
-  w += snprintf(out + w, n - w, ",\"wssid\":\"%s\",\"wst\":\"%s\",\"wcustom\":%u",
+  addf(out, n, w, ",\"wssid\":\"%s\",\"wst\":\"%s\",\"wcustom\":%u",
                 t.wifiSsid, t.wifiStatus, t.wifiCustom ? 1 : 0);
-  w += snprintf(out + w, n - w, ",\"ogithub\":%u", (unsigned)(ENABLE_GITHUB_OTA ? 1 : 0));
-  w += snprintf(out + w, n - w, ",\"wapk\":%u", (unsigned)(WIDGET_APK_SIZE / 1024));
+  addf(out, n, w, ",\"ogithub\":%u", (unsigned)(ENABLE_GITHUB_OTA ? 1 : 0));
+  addf(out, n, w, ",\"wapk\":%u", (unsigned)(WIDGET_APK_SIZE / 1024));
   /* флаг сторожа называется wdt: ключ wd уже занят днём недели */
-  w += snprintf(out + w, n - w, ",\"nvm\":%u,\"rstrt\":\"%s\",\"reqs\":%lu,\"cmds\":%lu,\"ota\":%u,\"wdt\":%u",
+  addf(out, n, w, ",\"nvm\":%u,\"rstrt\":\"%s\",\"reqs\":%lu,\"cmds\":%lu,\"ota\":%u,\"wdt\":%u",
                 t.nvmLoaded ? 1 : 0, resetReasonName(resetReason),
                 (unsigned long)t.requests, (unsigned long)t.cmds, t.otaActive ? 1 : 0,
                 (unsigned)(WATCHDOG_ENABLE ? 1 : 0));
-  w += snprintf(out + w, n - w, ",\"al\":%u,\"altext\":\"%s\"", (unsigned)t.alarms, t.alarmText);
-  w += snprintf(out + w, n - w, ",\"hist\":%u,\"histmax\":%u,\"step\":%u",
+  addf(out, n, w, ",\"al\":%u,\"altext\":\"%s\"", (unsigned)t.alarms, t.alarmText);
+  addf(out, n, w, ",\"hist\":%u,\"histmax\":%u,\"step\":%u",
                 (unsigned)histCount, (unsigned)HISTORY_MAX_POINTS, (unsigned)HISTORY_PERIOD_S);
 
   /* журнал циклов нагрева */
-  w += snprintf(out + w, n - w, ",\"cyc\":[");
+  addf(out, n, w, ",\"cyc\":[");
   for (uint8_t k = 0; k < cycleCount; k++) {
     uint8_t idx = (uint8_t)((cycleNext + CYCLE_LOG_SIZE - 1 - k) % CYCLE_LOG_SIZE);
     CycleLog& cl = cycles[idx];
@@ -1337,14 +1357,18 @@ static int buildStateJson(char* out, size_t n) {
       epochParts(cl.startEpoch + (uint32_t)TZ_OFFSET_MIN * 60, h, mi, s, d, mo, y, wd);
       snprintf(ts, sizeof(ts), "%02u:%02u", h, mi);
     }
-    w += snprintf(out + w, n - w, "%s{\"t\":\"%s\",\"ts\":%d.%02d,\"te\":%d.%02d,\"d\":%u,\"sp\":%d.%02d}",
+    addf(out, n, w, "%s{\"t\":\"%s\",\"ts\":%d.%02d,\"te\":%d.%02d,\"d\":%u,\"sp\":%d.%02d}",
                   k ? "," : "", ts,
                   cl.tStart100 / 100, abs(cl.tStart100 % 100),
                   cl.tEnd100 / 100, abs(cl.tEnd100 % 100),
                   (unsigned)cl.durSec,
                   cl.set100 / 100, abs(cl.set100 % 100));
   }
-  w += snprintf(out + w, n - w, "]}");
+  addf(out, n, w, "]}");
+  if (jsonTruncated) {
+    static bool warned = false;
+    if (!warned) { warned = true; Serial.print(F("[http] JSON не поместился в буфер (")); Serial.print((unsigned)n); Serial.println(F(" байт)")); }
+  }
   return w;
 }
 

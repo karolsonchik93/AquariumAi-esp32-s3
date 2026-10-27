@@ -820,21 +820,37 @@ function cmd(qs,msg){
 function tgl(k){ cmd(k+'=toggle'); }
 
 /* ---------- приём данных ---------- */
+var renderErrors=0;
+function applyState(obj){
+  if(!obj||typeof obj!=='object') return;
+  S=obj; lastOk=Date.now();
+  var off=$('offline'); if(off) off.classList.remove('show');
+  renderSafe();
+}
+/* одна кривая цифра не должна «замораживать» всю страницу */
+function renderSafe(){
+  try{ render(); }
+  catch(e){
+    renderErrors++;
+    if(renderErrors<4){
+      try{ console.error('render error:', e && e.message ? e.message : e); }catch(x){}
+      toast('ошибка отрисовки: '+(e&&e.message?e.message:e),'err');
+    }
+  }
+}
 function connect(){
   if(evt) try{ evt.close(); }catch(e){}
   evt=new EventSource('/events');
   evt.onmessage=function(e){
-    try{ S=JSON.parse(e.data); }catch(err){ return; }
-    lastOk=Date.now();
-    $('offline').classList.remove('show');
-    render();
+    var obj=null;
+    try{ obj=JSON.parse(e.data); }catch(err){ return; }
+    applyState(obj);
   };
   evt.onerror=function(){ /* EventSource переподключится сам */ };
 }
 function poll(){
-  fetch('/api/state',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
-    S=j; lastOk=Date.now(); $('offline').classList.remove('show'); render();
-  }).catch(function(){});
+  fetch('/api/state',{cache:'no-store'}).then(function(r){return r.json()})
+    .then(function(j){ applyState(j); }).catch(function(){});
 }
 function fetchHistory(){
   fetch('/api/history?win='+ranges[rangeIdx],{cache:'no-store'}).then(function(r){return r.json()})
