@@ -27,6 +27,8 @@ public class Api {
     public static final String KEY_TIME = "time";
     public static final String KEY_OK = "lastok";
     public static final String KEY_FW = "fw";
+    public static final String KEY_FEED = "feedleft";
+    public static final String KEY_FMIN = "feedmin";
 
     public static SharedPreferences prefs(Context c) {
         return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -57,6 +59,20 @@ public class Api {
         }
     }
 
+    /** Отправляет команду кормления: остановить помпу на fmin минут или отменить паузу. */
+    public static boolean feed(Context ctx, boolean stop) {
+        String h = host(ctx);
+        if (h == null || h.length() == 0) return false;
+        int m = prefs(ctx).getInt(KEY_FMIN, 10);
+        try {
+            String url = "http://" + h + "/api/cmd?" + (stop ? "fstop=1" : ("feed=" + m));
+            get(url);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** Читает /api/state и обновляет кэш. Возвращает true при успехе. */
     public static boolean refresh(Context ctx) {
         String h = host(ctx);
@@ -79,6 +95,9 @@ public class Api {
             e.putInt(KEY_ALARM, j.optInt("al", 0));
             e.putInt(KEY_RSSI, j.optInt("rssi", 0));
             e.putString(KEY_TIME, j.optString("time", ""));
+            e.putInt(KEY_FEED, j.optInt("feed", 0));
+            int fmin = j.optInt("fmin", 0);
+            if (fmin > 0) e.putInt(KEY_FMIN, fmin);
             e.putLong(KEY_OK, System.currentTimeMillis());
             e.apply();
             return true;

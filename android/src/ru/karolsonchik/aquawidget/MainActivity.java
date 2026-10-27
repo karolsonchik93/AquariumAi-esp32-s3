@@ -10,11 +10,12 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
-import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -43,30 +44,47 @@ public class MainActivity extends Activity {
         return Math.round(getResources().getDisplayMetrics().density * v);
     }
 
+    private Button makeButton(String text, View.OnClickListener l) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setAllCaps(false);
+        btn.setTextSize(15);
+        btn.setOnClickListener(l);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(10);
+        btn.setLayoutParams(lp);
+        return btn;
+    }
+
     private View buildUi() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(Color.parseColor("#060B14"));
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(28), dp(20), dp(20));
-        root.setBackgroundColor(Color.parseColor("#060B14"));
+        root.setPadding(dp(20), dp(28), dp(20), dp(28));
+        scroll.addView(root);
 
         TextView title = new TextView(this);
         title.setText("Аквариум — виджет");
         title.setTextColor(Color.parseColor("#E8EEF6"));
-        title.setTextSize(22);
+        title.setTextSize(23);
         root.addView(title);
 
         TextView hint = new TextView(this);
-        hint.setText("Виджет 2×3 показывает температуру воды, уставку, нагрев и свет с вашей платы. "
-                + "Адрес платы подставляется сам, когда вы скачиваете виджет со страницы платы.");
+        hint.setText("Виджет 2×3 показывает температуру воды, уставку, нагрев и свет с вашей платы.\n"
+                + "Адрес платы подставляется автоматически, когда вы скачиваете виджет со страницы платы.");
         hint.setTextColor(Color.parseColor("#8B9BAD"));
-        hint.setTextSize(13);
-        hint.setPadding(0, dp(10), 0, dp(18));
+        hint.setTextSize(13.5f);
+        hint.setPadding(0, dp(12), 0, dp(20));
         root.addView(hint);
 
         TextView l1 = new TextView(this);
         l1.setText("АДРЕС ПЛАТЫ");
         l1.setTextColor(Color.parseColor("#4D5B6B"));
         l1.setTextSize(11);
+        l1.setPadding(0, 0, 0, dp(6));
         root.addView(l1);
 
         hostInput = new EditText(this);
@@ -75,27 +93,21 @@ public class MainActivity extends Activity {
         hostInput.setHint("192.168.3.204");
         hostInput.setTextColor(Color.parseColor("#E8EEF6"));
         hostInput.setHintTextColor(Color.parseColor("#4D5B6B"));
+        hostInput.setTextSize(16);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(Color.parseColor("#132033"));
         bg.setCornerRadius(dp(12));
         hostInput.setBackground(bg);
-        hostInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+        hostInput.setPadding(dp(14), dp(12), dp(14), dp(12));
         String h = Api.host(this);
         if (h != null) hostInput.setText(h);
         root.addView(hostInput);
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(0, dp(14), 0, dp(6));
-
-        Button save = new Button(this);
-        save.setText("Сохранить");
-        save.setOnClickListener(new View.OnClickListener() {
+        root.addView(makeButton("Сохранить адрес и проверить связь", new View.OnClickListener() {
             public void onClick(View v) {
                 String s = hostInput.getText().toString().trim();
                 s = s.replace("http://", "").replace("https://", "");
                 while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
-                if (s.indexOf(':') < 0) s = s;
                 if (s.length() == 0) {
                     Toast.makeText(MainActivity.this, "Укажите адрес платы", Toast.LENGTH_SHORT).show();
                     return;
@@ -103,24 +115,16 @@ public class MainActivity extends Activity {
                 Api.prefs(MainActivity.this).edit().putString(Api.KEY_HOST, s).apply();
                 hostInput.setText(s);
                 updateStatus();
-                refreshNow();
             }
-        });
-        row.addView(save);
+        }));
 
-        Button add = new Button(this);
-        add.setText("Добавить виджет");
-        add.setOnClickListener(new View.OnClickListener() {
+        root.addView(makeButton("Добавить виджет на главный экран", new View.OnClickListener() {
             public void onClick(View v) {
                 requestPin();
             }
-        });
-        row.addView(add);
-        root.addView(row);
+        }));
 
-        Button open = new Button(this);
-        open.setText("Открыть страницу платы");
-        open.setOnClickListener(new View.OnClickListener() {
+        root.addView(makeButton("Открыть страницу платы", new View.OnClickListener() {
             public void onClick(View v) {
                 String s = Api.host(MainActivity.this);
                 if (s.length() == 0) {
@@ -133,17 +137,23 @@ public class MainActivity extends Activity {
                     Toast.makeText(MainActivity.this, "Нет браузера", Toast.LENGTH_SHORT).show();
                 }
             }
-        });
-        root.addView(open);
+        }));
 
         statusView = new TextView(this);
         statusView.setTextColor(Color.parseColor("#8B9BAD"));
         statusView.setTextSize(13);
-        statusView.setPadding(0, dp(18), 0, 0);
-        statusView.setGravity(Gravity.START);
+        statusView.setPadding(0, dp(22), 0, 0);
+        statusView.setLineSpacing(0, 1.35f);
         root.addView(statusView);
 
-        return root;
+        TextView foot = new TextView(this);
+        foot.setText("Если виджет не появился: зажмите пустое место на рабочем столе → «Виджеты» → «Аквариум».");
+        foot.setTextColor(Color.parseColor("#3F4B59"));
+        foot.setTextSize(11.5f);
+        foot.setPadding(0, dp(16), 0, 0);
+        root.addView(foot);
+
+        return scroll;
     }
 
     private void updateStatus() {
@@ -151,7 +161,7 @@ public class MainActivity extends Activity {
         if (h == null || h.length() == 0) {
             statusView.setText("Плата не привязана.\nСкачайте виджет со страницы платы или введите адрес вручную.");
         } else {
-            statusView.setText("Плата: " + h + "\nДанные обновляются при открытии виджета и по нажатию «обновить».");
+            statusView.setText("Плата: " + h + "\nПроверяю связь…");
             refreshNow();
         }
     }
@@ -163,10 +173,16 @@ public class MainActivity extends Activity {
                 final boolean ok = Api.refresh(self);
                 runOnUiThread(new Runnable() {
                     public void run() {
-                        if (statusView != null) {
-                            String h = Api.host(self);
-                            statusView.setText((ok ? "Связь есть · " : "Нет ответа от платы · ") + h
+                        if (statusView == null) return;
+                        String h = Api.host(self);
+                        if (ok) {
+                            String t = Api.prefs(self).getString(Api.KEY_TEMP, "");
+                            statusView.setText("Связь с платой есть · " + h + "\n"
+                                    + (t.length() > 0 ? "Температура воды: " + t + " °C" : "Датчик воды не найден")
                                     + "\nДанные виджета обновлены.");
+                        } else {
+                            statusView.setText("Плата не ответила · " + h
+                                    + "\nПроверьте, что телефон в той же сети, и адрес верный.");
                         }
                         AquaWidgetProvider.push(self);
                     }
