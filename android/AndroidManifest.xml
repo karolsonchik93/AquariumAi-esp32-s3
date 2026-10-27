@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ru.karolsonchik.aquawidget"
-    android:versionCode="1"
-    android:versionName="1.0">
+    android:versionCode="5"
+    android:versionName="1.1.0">
 
     <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:label="Аквариум"
@@ -39,6 +40,11 @@
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="ru.karolsonchik.aquawidget.REFRESH" />
+                <action android:name="ru.karolsonchik.aquawidget.TICK" />
+                <action android:name="ru.karolsonchik.aquawidget.FEED" />
+                <action android:name="ru.karolsonchik.aquawidget.FEEDSTOP" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.USER_PRESENT" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"

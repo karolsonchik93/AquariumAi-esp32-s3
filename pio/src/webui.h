@@ -241,6 +241,21 @@ body.heating .ring-fg{animation:ringPulse 1.8s ease-in-out infinite}
 .sparkTop{display:flex;justify-content:space-between;font-size:10px;color:var(--dim);margin-bottom:3px}
 .spark canvas{width:100%;display:block;border-radius:6px}
 @media(max-width:560px){.tank{height:290px}.gauge{width:min(74%,230px)}}
+/* ══════════ РЕЖИМЫ И КОРМЛЕНИЕ ══════════ */
+.modes{display:inline-flex;flex-wrap:wrap;gap:4px;background:rgba(255,255,255,.05);
+  border:1px solid var(--line);border-radius:12px;padding:4px}
+.modes button{appearance:none;border:0;background:transparent;color:var(--dim);font:inherit;
+  font-size:12.5px;padding:8px 13px;border-radius:9px;cursor:pointer;transition:.2s}
+.modes button:hover{color:var(--fg)}
+.modes button.on{background:#E9F94B;color:#15200A;font-weight:700;box-shadow:0 0 18px -4px rgba(233,249,75,.95)}
+.feedBtn{width:100%;appearance:none;border:1px solid rgba(233,249,75,.45);border-radius:14px;
+  background:linear-gradient(160deg,rgba(233,249,75,.15),rgba(233,249,75,.04));color:#E9F94B;
+  font:inherit;font-size:12.5px;font-weight:700;letter-spacing:.08em;padding:14px 12px;cursor:pointer;
+  transition:.2s}
+.feedBtn:hover{background:rgba(233,249,75,.26);transform:translateY(-1px)}
+.feedBtn.active{background:#E9F94B;color:#15200A;box-shadow:0 0 22px -4px rgba(233,249,75,.9)}
+.feedLeft{font-size:11px;color:var(--dim);text-align:center;margin-top:6px;font-variant-numeric:tabular-nums}
+.feedCard{background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:11px}
 /* ══════════ ПЕРЕКЛЮЧАТЕЛИ ══════════ */
 .relay{display:flex;flex-direction:column;gap:12px}
 .relay .head{margin-bottom:0}
@@ -503,10 +518,9 @@ body.night .card{background:rgba(255,255,255,.03)}
         <div class="hbar"><i id="lightBar"></i></div>
         <span class="hsub" id="h-lightSub">—</span>
       </div>
-      <div class="hrow">
-        <span class="hico" id="rssiIco">📶</span>
-        <div class="hbody"><span class="hk">Связь</span><span class="hv" id="h-net">—</span></div>
-        <span class="hsub" id="h-netSub">—</span>
+      <div class="feedCard">
+        <button class="feedBtn" id="heroFeed" onclick="startFeed()">КОРМЛЕНИЕ</button>
+        <div class="feedLeft" id="feedLeft">—</div>
       </div>
       <div class="spark">
         <canvas id="spark" height="56"></canvas>
@@ -525,6 +539,14 @@ body.night .card{background:rgba(255,255,255,.03)}
       <div class="switch" id="sw-pump" onclick="tgl('pump')"></div>
       <span class="note">GPIO4</span>
     </div>
+    <div class="row" style="margin-top:12px;align-items:flex-end">
+      <label class="f">Остановка на кормление, мин<input type="number" id="feedmin" min="1" max="120" step="1" style="width:96px"></label>
+      <button class="btn" onclick="applyFeedMin()">Применить</button>
+    </div>
+    <div style="margin-top:12px">
+      <button class="feedBtn" id="feedBtn" onclick="startFeed()">КОРМЛЕНИЕ</button>
+      <div class="feedLeft" id="feedLeftCard">—</div>
+    </div>
   </div>
 
   <div class="card relay">
@@ -539,29 +561,31 @@ body.night .card{background:rgba(255,255,255,.03)}
   <div class="card relay">
     <div class="head"><h2>Вентилятор</h2><span class="pill" id="p-fan">—</span></div>
     <p class="note">Реле 3 · охлаждение при перегреве</p>
-    <div class="row" style="justify-content:space-between;align-items:center">
-      <div class="switch" id="sw-fan" onclick="tgl('fan')"></div>
-      <span class="note">GPIO6</span>
+    <div class="row" style="margin-top:4px">
+      <div class="modes">
+        <button id="fan-auto" onclick="cmd('fanmode=auto','вентилятор: авто')">Авто</button>
+        <button id="fan-on"   onclick="cmd('fanmode=on','вентилятор принудительно включён')">Вкл</button>
+        <button id="fan-off"  onclick="cmd('fanmode=off','вентилятор принудительно выключен')">Выкл</button>
+      </div>
     </div>
     <div class="row">
       <label class="f">Включать выше, °C<input type="number" id="fanon" step="0.1" min="15" max="40"></label>
       <label class="f">Гистерезис<input type="number" id="fanhy" step="0.1" min="0.1" max="2"></label>
       <button class="btn primary" onclick="applyFan()">Применить</button>
-      <button class="btn ghost" onclick="cmd('fanauto=1','вентилятор в авто')">Авто</button>
     </div>
   </div>
 
   <div class="card relay">
     <div class="head"><h2>Подогреватель</h2><span class="pill" id="p-heat">—</span></div>
     <p class="note">Реле 4 · термостат держит температуру сам</p>
-    <div class="row" style="justify-content:space-between;align-items:center">
-      <div class="switch" id="sw-heat" onclick="tgl('heat')"></div>
-      <span class="note">GPIO7</span>
+    <div class="row" style="margin-top:4px">
+      <div class="modes">
+        <button id="heat-auto" onclick="cmd('heatmode=auto','нагрев: авто')">Авто</button>
+        <button id="heat-on"   onclick="cmd('heatmode=on','нагрев вручную на 15 минут')">15 мин</button>
+        <button id="heat-off"  onclick="cmd('heatmode=off','нагрев принудительно выключен')">Выкл</button>
+      </div>
     </div>
-    <div class="row">
-      <button class="btn" onclick="cmd('heat=1','нагрев на 15 минут')">Нагрев 15 мин</button>
-      <button class="btn ghost" onclick="cmd('heatauto=1','нагрев в авто')">Авто</button>
-    </div>
+    <p class="note" id="heatModeNote" style="margin-top:10px">—</p>
   </div>
 
   <!-- термостат -->
@@ -771,6 +795,7 @@ var WD=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
 var PH={night:'Ночь',dawn:'Рассвет',day:'День',dusk:'Закат',manual:'Ручной свет'};
 var builtChans=false,builtDiag=false,bubbleEls=false;
 var schedBuilt=false,schedDirty=false,schedSv=-1;
+var schedPending=false,schedSvAtSave=-1;
 
 /* ---------- утилиты ---------- */
 function nf(v,d){ if(v===null||v===undefined||isNaN(v))return '—'; return Number(v).toFixed(d===undefined?1:d); }
@@ -956,7 +981,11 @@ function setTime(id,v){ var el=$(id); if(el&&document.activeElement!==el) el.val
 function syncSched(force){
   if(!S||!S.sched) return;
   if(!schedBuilt) buildSched();
-  if(!force && !schedDirty && schedSv===S.sv) return;
+  if(!force){
+    /* пока плата не подтвердила сохранение, поля не трогаем — иначе они «откатятся» */
+    if(schedPending && S.sv===schedSvAtSave) return;
+    if(!schedDirty && schedSv===S.sv) return;
+  }
   for(var d=0;d<7;d++){
     var e=S.sched[d]; if(!e) continue;
     var cb=$('sen'+d); if(cb) cb.checked=!!e[0];
@@ -965,6 +994,7 @@ function syncSched(force){
     var row=$('srow'+d); if(row) row.className='srow'+(e[0]?'':' off');
   }
   schedSv=S.sv;
+  if(schedPending){ schedPending=false; $('schedState').textContent='сохранено на плате'; }
   if(force){ schedDirty=false; $('schedState').textContent=''; }
 }
 function schedTouched(){
@@ -976,6 +1006,15 @@ function schedTouched(){
   }
 }
 function hm(v){ return String(v||'00:00').replace(':',''); }
+/* Проверка: плата должна вернуть новый sv. Если не вернула — честно говорим об этом. */
+function verifySched(){
+  if(!S) return;
+  if(S.sv!==schedSvAtSave){ schedPending=false; $('schedState').textContent='сохранено на плате'; return; }
+  schedPending=false;
+  $('schedState').textContent='плата не подтвердила — перечитываю';
+  toast('плата не подтвердила расписание, перечитываю','err');
+  poll();
+}
 function saveSched(){
   if(!S||!S.sched){ toast('нет данных с платы','err'); return; }
   var parts=[];
@@ -988,8 +1027,19 @@ function saveSched(){
   fetch('/api/cmd?sched='+encodeURIComponent(parts.join(';')),{cache:'no-store'})
     .then(function(r){return r.json()})
     .then(function(j){
-      if(j&&j.ok){ schedDirty=false; $('schedState').textContent='сохранено'; toast('расписание сохранено','ok'); }
-      else { $('schedState').textContent='не удалось'; toast('не удалось сохранить','err'); }
+      if(j&&j.sched===1){
+        schedDirty=false; schedPending=true; schedSvAtSave=(S?S.sv:-1);
+        $('schedState').textContent='принято платой, проверяю…';
+        toast('расписание сохранено','ok');
+        setTimeout(verifySched,3000);
+      } else if(j&&j.sched===0){
+        schedDirty=true;
+        $('schedState').textContent='плата отклонила формат';
+        toast('плата отклонила расписание — проверьте поля','err');
+      } else {
+        $('schedState').textContent='плата не ответила';
+        toast('плата не ответила','err');
+      }
     }).catch(function(){ $('schedState').textContent='нет связи'; toast('нет связи с платой','err'); });
 }
 function copyDay(from,weekdaysOnly){
@@ -1066,6 +1116,19 @@ function drawSpark(){
   if(S&&S.sp){ ctx.setLineDash([3,3]); ctx.strokeStyle='rgba(255,255,255,.28)'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(0,Y(S.sp)); ctx.lineTo(W,Y(S.sp)); ctx.stroke(); ctx.setLineDash([]); }
   $('sparkInfo').textContent=mn.toFixed(1)+'…'+mx.toFixed(1)+' °C';
+}
+
+/* ---------- кормление ---------- */
+function startFeed(){
+  if(!S) return;
+  if((S.feed||0)>0){ cmd('fstop=1','пауза кормления отменена'); return; }
+  var m=S.fmin||10;
+  cmd('feed='+m,'кормление: помпа остановлена на '+m+' мин');
+}
+function applyFeedMin(){
+  var m=parseInt($('feedmin').value,10);
+  if(!m||m<1||m>120){ toast('время от 1 до 120 минут','err'); return; }
+  cmd('fset='+m,'пауза кормления: '+m+' мин');
 }
 function buildChans(){
   var h='';
@@ -1234,9 +1297,24 @@ function render(){
   $('lightBar').style.width=(S.lp[0]||0)+'%';
   var todayS=(S.sched&&S.sched[S.wd||0])?S.sched[S.wd||0]:null;
   $('h-lightSub').textContent=(PH[S.phase]||'—')+(todayS&&todayS[0]?(', ночник до '+todayS[3]):', сегодня выключен');
-  $('h-net').textContent=S.ap?'точка доступа':(S.ip||'—');
-  $('h-netSub').textContent=(S.ap?'192.168.4.1 · ':(nf(S.rssi,0)+' дБм · '))+'работает '+fmtDur(S.up);
-  $('rssiIco').style.opacity=S.ap?1:(0.35+Math.min(0.65,Math.max(0,((S.rssi||-90)+90)/50)));
+
+  /* кормление: одна кнопка в герое и одна в карточке помпы */
+  var feeding=(S.feed||0)>0;
+  var feedTxt=feeding?('идёт кормление, помпа вернётся через '+fmtDur(S.feed)):('пауза при кормлении: '+(S.fmin||10)+' мин');
+  ['feedLeft','feedLeftCard'].forEach(function(id){ var el=$(id); if(el) el.textContent=feedTxt; });
+  ['heroFeed','feedBtn'].forEach(function(id){
+    var el=$(id); if(!el) return;
+    el.className='feedBtn'+(feeding?' active':'');
+    el.textContent=feeding?'ОТМЕНИТЬ ПАУЗУ':'КОРМЛЕНИЕ';
+  });
+  setv($('feedmin'),S.fmin||10);
+
+  /* режимы вентилятора и нагрева: подсвечиваем выбранный */
+  var fm=(S.fanmode|0), hm=(S.heatmode|0);
+  $('fan-auto').className=(fm===0?'on':''); $('fan-on').className=(fm===1?'on':''); $('fan-off').className=(fm===2?'on':'');
+  $('heat-auto').className=(hm===0?'on':''); $('heat-on').className=(hm===1?'on':''); $('heat-off').className=(hm===2?'on':'');
+  $('heatModeNote').textContent=hm===0?'автоматически по уставке'
+    :(hm===1?'включён вручную, осталось '+fmtDur(Math.max(0,900-(S.hl||0))):'принудительно выключен, автоматика не включит');
 
   /* мини-график обновляем не чаще раза в 15 секунд */
   if(Date.now()-lastSpark>15000){ lastSpark=Date.now(); drawSpark(); }
@@ -1245,12 +1323,13 @@ function render(){
   cls('p-pump','pill',S.pump); cls('p-air','pill',S.air);
   cls('p-fan','pill',S.fan);   cls('p-heat','pill',S.heat);
   if(S.heat) $('p-heat').className='pill hot';
-  $('p-pump').textContent=S.pump?'ВКЛ':'ВЫКЛ';
+  if(feeding) $('p-pump').className='pill err';
+  $('p-pump').textContent=feeding?'ПАУЗА':(S.pump?'ВКЛ':'ВЫКЛ');
   $('p-air').textContent=S.air?'ВКЛ':'ВЫКЛ';
-  $('p-fan').textContent=S.fan?'ВКЛ':'ВЫКЛ';
-  $('p-heat').textContent=S.heat?(S.heatman?'ВКЛ вручную':'НАГРЕВ'):'ВЫКЛ';
+  $('p-fan').textContent=S.fan?'ВКЛ':(fm===2?'ВЫКЛ (принуд.)':'ВЫКЛ');
+  $('p-heat').textContent=S.heat?(hm===1?'ВКЛ вручную':'НАГРЕВ'):(hm===2?'ВЫКЛ (принуд.)':'ВЫКЛ');
   cls('sw-pump','switch',S.pump); cls('sw-air','switch',S.air);
-  cls('sw-fan','switch',S.fan); if(S.heat) $('sw-heat').className='switch hot';
+  if(S.heat) $('sw-heat').className='switch hot';
   else $('sw-heat').className='switch';
 
   /* термостат */
@@ -1376,10 +1455,29 @@ function fmtDur(sec){
 function fitCanvas(c){
   var r=c.getBoundingClientRect(), dpr=Math.min(2,window.devicePixelRatio||1);
   c.width=Math.max(320,Math.round(r.width*dpr));
-  c.height=Math.round(190*dpr);
+  c.height=Math.round(212*dpr);
   var ctx=c.getContext('2d');
   ctx.setTransform(dpr,0,0,dpr,0,0);
   return {ctx:ctx,W:c.width/dpr,H:c.height/dpr};
+}
+/* Живой график: между полными обновлениями дописываем точку сами,
+   чтобы линия двигалась, а не «замирала до перезагрузки». */
+function appendLivePoint(){
+  if(!S||!H||!H.n||S.t===null||S.t===undefined) return;
+  var value=Math.round(Number(S.t)*100);
+  if(!isFinite(value)||value<=0) return;
+  H.t.push(value);
+  H.a.push((S.tok&&S.ta)?Math.round(Number(S.ta)*100):-3000);
+  var fl=0;
+  if(S.heat) fl|=0x01;
+  if(S.fan) fl|=0x02;
+  if(S.pump) fl|=0x04;
+  if(S.air) fl|=0x08;
+  if(S.lp&&S.lp[0]>2) fl|=0x10;
+  H.f.push(fl);
+  while(H.t.length>420){ H.t.shift(); H.a.shift(); H.f.shift(); }
+  H.n=H.t.length;
+  drawChart();
 }
 function drawChart(){
   var c=$('chart'); if(!c) return;
@@ -1393,7 +1491,7 @@ function drawChart(){
   if(!isFinite(mn)||!isFinite(mx)) return;
   var m=(mx-mn)*0.18+0.25; mn-=m; mx+=m;
   var accent=getComputedStyle(document.body).getPropertyValue('--accent').trim()||'#00e5ff';
-  var plotH=Hh-46;
+  var plotH=Hh-62;
   function X(i){ return pad+(W-2*pad)*i/Math.max(1,n-1); }
   function Y(v){ return pad+(plotH-pad)*(1-(v-mn)/(mx-mn)); }
 
@@ -1425,13 +1523,29 @@ function drawChart(){
   if(S){ ctx.setLineDash([5,5]); ctx.strokeStyle='rgba(255,255,255,.32)'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(pad,Y(S.sp)); ctx.lineTo(W-pad,Y(S.sp)); ctx.stroke(); ctx.setLineDash([]); }
   /* полосы состояния */
-  var base=plotH+16;
+  var base=plotH+14;
   for(var i5=0;i5<n;i5++){
     var fl=f[i5]||0, x0=X(i5), x1=X(i5+1);
     if(fl&0x01){ ctx.fillStyle='rgba(255,120,60,.85)'; ctx.fillRect(x0,base,Math.max(1,x1-x0),8); }
     if(fl&0x10){ ctx.fillStyle='rgba(255,214,120,.6)'; ctx.fillRect(x0,base+10,Math.max(1,x1-x0),8); }
   }
-  $('chartInfo').textContent=n+' точек · шаг '+H.step+' с';
+  /* временная шкала: 5 отметок от самого старого значения до «сейчас» */
+  var stepSec=(H.step&&H.step>0)?H.step:15;
+  var windowSec=(n-1)*stepSec;
+  var endT=Date.now();
+  ctx.font='10px system-ui'; ctx.fillStyle='rgba(255,255,255,.45)'; ctx.textBaseline='top';
+  for(var k=0;k<5;k++){
+    var frac=k/4;
+    var x=pad+(W-2*pad)*frac;
+    var when=new Date(endT-(1-frac)*windowSec*1000);
+    var lbl=String(when.getHours()); if(lbl.length<2) lbl='0'+lbl;
+    var mi=String(when.getMinutes()); if(mi.length<2) mi='0'+mi;
+    ctx.strokeStyle='rgba(255,255,255,.07)';
+    ctx.beginPath(); ctx.moveTo(x,pad); ctx.lineTo(x,plotH); ctx.stroke();
+    ctx.fillText(lbl+':'+mi, Math.min(W-pad-26, Math.max(pad, x-13)), plotH+26);
+  }
+  ctx.textBaseline='alphabetic';
+  $('chartInfo').textContent=n+' точек · шаг '+stepSec+' с · окно '+Math.round(windowSec/60)+' мин';
 }
 window.addEventListener('resize',function(){ drawChart(); });
 
@@ -1489,6 +1603,8 @@ setInterval(function(){
 },1000);
 setInterval(function(){ if(!S||Date.now()-lastOk>6000) poll(); },5000);
 setInterval(function(){ if(Date.now()-lastOk<6000) fetchHistory(); },60000);
+/* точка на графике каждые 15 секунд — так же, как плата пишет историю */
+setInterval(function(){ if(Date.now()-lastOk<6000) appendLivePoint(); },15000);
 
 window.addEventListener('load',function(){
   buildTicks(); buildBubbles(); buildHeatwaves();

@@ -32,7 +32,7 @@ Write-Host '2. aapt2 link'
 & (Join-Path $bt 'aapt2.exe') link -o (Join-Path $out 'base.apk') -I $jar `
     --manifest (Join-Path $app 'AndroidManifest.xml') -R (Join-Path $out 'res.zip') `
     --java (Join-Path $out 'gen') --min-sdk-version 23 --target-sdk-version 34 `
-    --version-code 4 --version-name '1.0.3' --auto-add-overlay
+    --version-code 5 --version-name '1.1.0' --auto-add-overlay
 
 Write-Host '3. javac (UTF-8!)'
 $srcs = Get-ChildItem (Join-Path $app 'src') -Recurse -Filter *.java | ForEach-Object { $_.FullName }

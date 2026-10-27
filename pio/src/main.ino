@@ -162,7 +162,10 @@ struct Telemetry {
   float    water, air, waterShown;
   bool     waterOk, airOk;
   bool     pump, airOn, fan, heat;
-  bool     heaterLocked, fanManual, heatManual;
+  bool     heaterLocked;
+  uint8_t  fanMode, heatMode;
+  uint16_t feedMin;
+  uint32_t feedLeft;
   uint32_t heaterOnSec;
   float    setpoint, hyst, maxWaterTemp, fanOn, fanHyst, heaterPowerW;
   uint8_t  lightMode, phase;
@@ -225,9 +228,14 @@ static uint8_t relayState[4] = { 0, 0, 0, 0 };
 static uint32_t heaterOnAt = 0, heaterOffAt = 0;
 static bool heaterLocked = false;
 static uint32_t heaterLockUntil = 0;
-static bool heatManual = false, heatManualState = false;
+/* Режимы исполнителей: 0 — авто, 1 — принудительно включить, 2 — принудительно выключить.
+   Хранятся отдельными ключами NVS, чтобы не менять раскладку основной структуры настроек. */
+static uint8_t fanMode = 0;
+static uint8_t heatMode = 0;
 static uint32_t heatManualUntil = 0;
-static bool fanManual = false, fanManualState = false;
+/* Кормление: помпа выключается на feedMinutes минут, потом возвращается в своё состояние */
+static uint16_t feedMinutes = 10;
+static uint32_t feedUntil = 0;
 static uint8_t alarms = 0;
 static char alarmText[96] = "";
 
@@ -276,8 +284,10 @@ static char sseJson[STATE_JSON_MAX];
 
 /* заявки на изменение расписания (приходят длинной строкой, поэтому минуют очередь) */
 static uint8_t schedRev = 0;
-static char schedRequest[260];
+static char schedRequest[400];
+static DaySchedule schedNext[7];
 static volatile bool schedApplyReq = false;
+static volatile bool schedValid = false;
 
 /* ====================== ПРОТОТИПЫ ====================== */
 static float  clampf(float v, float lo, float hi);
@@ -302,11 +312,15 @@ static void   sensorTask();
 static void   relayWrite(uint8_t ch, bool on);
 static void   ledWrite(uint8_t ch, uint8_t pct);
 static uint16_t nightLenFor(const DaySchedule& ds);
+static void   controlPump();
 static void   controlHeater();
 static void   controlFan();
 static void   controlLight();
 static void   schedApplyDefaults(int day);
 static bool   schedParse(const char* s);
+static bool   schedParseInto(const char* s, DaySchedule* out);
+static void   modesLoad();
+static void   modesSave();
 
 static void   historyInit();
 static void   historyPush();
@@ -432,6 +446,23 @@ static void settingsDefaults() {
   cfg.fanOn = DEF_FAN_ON_TEMP;
   cfg.fanHyst = DEF_FAN_HYST;
   cfg.heaterPowerW = DEF_HEATER_POWER_W;
+}
+
+/* Режимы и длительность кормления лежат отдельными ключами NVS,
+   чтобы не менять раскладку основной структуры настроек. */
+static void modesLoad() {
+  fanMode = prefs.getUChar("fanmode", 0);
+  heatMode = prefs.getUChar("heatmode", 0);
+  feedMinutes = prefs.getUShort("feedmin", 10);
+  if (fanMode > 2) fanMode = 0;
+  if (heatMode > 2) heatMode = 0;
+  if (feedMinutes < 1 || feedMinutes > 120) feedMinutes = 10;
+}
+
+static void modesSave() {
+  prefs.putUChar("fanmode", fanMode);
+  prefs.putUChar("heatmode", heatMode);
+  prefs.putUShort("feedmin", feedMinutes);
 }
 
 static bool settingsLoad() {
@@ -665,17 +696,38 @@ static uint32_t estimateHeaterSeconds(float dtC) {
 }
 
 /* ====================== РЕГУЛЯТОРЫ ====================== */
+/* Помпа: работаем по желанию пользователя, но на время кормления полностью выключаем */
+static void controlPump() {
+  bool want = cfg.pumpOn != 0;
+  if (feedUntil) {
+    if ((int32_t)(millis() - feedUntil) < 0) {
+      want = false;
+    } else {
+      feedUntil = 0;
+      Serial.println(F("[кормление] пауза закончилась, помпа возвращается в работу"));
+    }
+  }
+  relayWrite(RLY_PUMP, want);
+}
+
 static void controlHeater() {
   uint32_t now = millis();
   bool want = relayState[RLY_HEAT];
   bool decided = false;
 
-  if (heatManual) {
+  /* принудительное выключение — сильнее любой автоматики */
+  if (heatMode == 2) {
+    want = false;
+    decided = true;
+  } else if (heatMode == 1) {
+    /* ручное включение на 15 минут, но защиты продолжают работать */
     if ((int32_t)(now - heatManualUntil) >= 0) {
-      heatManual = false; heatManualState = false;
+      heatMode = 0;
+      Serial.println(F("[heat] ручной режим закончился, вернулся в авто"));
     } else {
-      want = heatManualState;
-      if (waterOk && waterTemp > cfg.maxWaterTemp) { want = false; alarms |= AL_OVERHEAT; }
+      want = true;
+      if (!waterOk) { want = false; }
+      else if (waterTemp > cfg.maxWaterTemp) { want = false; alarms |= AL_OVERHEAT; }
       decided = true;
     }
   }
@@ -745,7 +797,8 @@ static void controlHeater() {
 }
 
 static void controlFan() {
-  if (fanManual) { relayWrite(RLY_FAN, fanManualState); return; }
+  if (fanMode == 2) { relayWrite(RLY_FAN, false); return; }   /* принудительно выкл */
+  if (fanMode == 1) { relayWrite(RLY_FAN, true);  return; }   /* принудительно вкл */
   if (!waterOk) { relayWrite(RLY_FAN, false); return; }
   bool on = relayState[RLY_FAN];
   if (on) on = (waterTemp > (cfg.fanOn - cfg.fanHyst));
@@ -1126,8 +1179,14 @@ static void publishTelemetry() {
   tele.fan = relayState[RLY_FAN];
   tele.heat = relayState[RLY_HEAT];
   tele.heaterLocked = heaterLocked;
-  tele.fanManual = fanManual;
-  tele.heatManual = heatManual;
+  tele.fanMode = fanMode;
+  tele.heatMode = heatMode;
+  tele.feedMin = feedMinutes;
+  {
+    int32_t left = (int32_t)(feedUntil - millis());
+    tele.feedLeft = (feedUntil && left > 0) ? (uint32_t)(left / 1000) : 0;
+    if (!feedUntil) tele.feedLeft = 0;
+  }
   tele.heaterOnSec = relayState[RLY_HEAT] ? (millis() - heaterOnAt) / 1000UL : 0;
   tele.setpoint = cfg.setpoint;
   tele.hyst = cfg.hyst;
@@ -1213,7 +1272,8 @@ static int buildStateJson(char* out, size_t n) {
   w += snprintf(out + w, n - w, ",\"pump\":%u,\"air\":%u,\"fan\":%u,\"heat\":%u,\"hlock\":%u,\"hl\":%lu",
                 t.pump ? 1 : 0, t.airOn ? 1 : 0, t.fan ? 1 : 0, t.heat ? 1 : 0,
                 t.heaterLocked ? 1 : 0, (unsigned long)t.heaterOnSec);
-  w += snprintf(out + w, n - w, ",\"fanman\":%u,\"heatman\":%u", t.fanManual ? 1 : 0, t.heatManual ? 1 : 0);
+  w += snprintf(out + w, n - w, ",\"fanmode\":%u,\"heatmode\":%u,\"feed\":%lu,\"fmin\":%u",
+                (unsigned)t.fanMode, (unsigned)t.heatMode, (unsigned long)t.feedLeft, (unsigned)t.feedMin);
   fmtF(s1, sizeof(s1), t.setpoint, 1); fmtF(s2, sizeof(s2), t.hyst, 2); fmtF(s3, sizeof(s3), t.maxWaterTemp, 1);
   w += snprintf(out + w, n - w, ",\"sp\":%s,\"hy\":%s,\"maxt\":%s", s1, s2, s3);
   fmtF(s1, sizeof(s1), t.fanOn, 1); fmtF(s2, sizeof(s2), t.fanHyst, 2); fmtF(s3, sizeof(s3), t.heaterPowerW, 0);
@@ -1706,17 +1766,27 @@ static void httpHandleCmd(WiFiClient& c, const char* query) {
                                 "set", "hyst", "maxt", "fanon", "fanhy", "pw",
                                 "lmode", "lch", "lval", "lday", "lnight",
                                 "on", "off", "noff", "ramp", "days",
+                                "feed", "fstop", "fset", "fanmode", "heatmode",
                                 "timesync", "tset", "conf", "reset", "reboot", "scan", "water", "nightpct" };
   char val[40];
   int applied = 0;
+  int schedOk = -1;                        // -1 — расписание не присылали
 
-  /* расписание на 7 дней — длинная строка, поэтому передаём её мимо очереди */
-  static char sval[300];
+  /* расписание на 7 дней: разбираем и проверяем прямо здесь, чтобы честно ответить странице */
+  static char sval[400];
   if (getParam(query, "sched", sval, sizeof(sval))) {
-    snprintf(schedRequest, sizeof(schedRequest), "%s", sval);
-    schedApplyReq = true;
-    applied++;
-    Serial.println(F("[http] получено новое расписание света"));
+    DaySchedule tmp[7];
+    for (uint8_t d = 0; d < 7; d++) tmp[d] = cfg.days[d];
+    bool ok = schedParseInto(sval, tmp);
+    schedOk = ok ? 1 : 0;
+    if (ok) {
+      for (uint8_t d = 0; d < 7; d++) schedNext[d] = tmp[d];
+      schedValid = true;
+      schedApplyReq = true;
+      applied++;
+    }
+    Serial.print(F("[http] расписание: "));
+    Serial.println(ok ? F("формат верный, применяю") : F("ОТКЛОНЕНО (нужно 7 групп по 5 чисел)"));
   }
 
   for (unsigned i = 0; i < sizeof(KEYS) / sizeof(KEYS[0]); i++) {
@@ -1731,7 +1801,9 @@ static void httpHandleCmd(WiFiClient& c, const char* query) {
   Serial.print(F("  (параметров ")); Serial.print(applied); Serial.println(F(")"));
 #endif
   httpSendHead(c, "200 OK", "application/json; charset=utf-8", -1);
-  c.print(F("{\"ok\":1,\"applied\":")); c.print(applied); c.print('}');
+  c.print(F("{\"ok\":1,\"applied\":")); c.print(applied);
+  if (schedOk >= 0) { c.print(F(",\"sched\":")); c.print(schedOk); }
+  c.print('}');
   c.flush();
 }
 
@@ -1928,22 +2000,63 @@ static void applyCmd(const char* key, const char* val) {
     return on;
   };
 
-  if (!strcmp(key, "pump")) { on = setRelayFromVal(RLY_PUMP); relayWrite(RLY_PUMP, on); cfg.pumpOn = on; cfgDirty = true; }
-  else if (!strcmp(key, "air")) { on = setRelayFromVal(RLY_AIR); relayWrite(RLY_AIR, on); cfg.airOn = on; cfgDirty = true; }
+  if (!strcmp(key, "air")) { on = setRelayFromVal(RLY_AIR); relayWrite(RLY_AIR, on); cfg.airOn = on; cfgDirty = true; }
+  /* помпу ведёт controlPump(): здесь только запоминаем желание пользователя */
+  else if (!strcmp(key, "pump")) {
+    on = setRelayFromVal(RLY_PUMP);
+    cfg.pumpOn = on;
+    cfgDirty = true;
+    Serial.print(F("[помпа] ")); Serial.println(on ? F("включена") : F("выключена"));
+  }
+  /* кормление: пауза помпы на feedMinutes минут */
+  else if (!strcmp(key, "feed") || !strcmp(key, "fstop") || !strcmp(key, "fset")) {
+    if (!strcmp(key, "fstop")) {
+      feedUntil = 0;
+      Serial.println(F("[кормление] пауза отменена"));
+    } else if (!strcmp(key, "fset")) {
+      feedMinutes = (uint16_t)clampf(atof(val), 1, 120);
+      modesSave();
+      Serial.print(F("[кормление] длительность паузы: ")); Serial.print(feedMinutes); Serial.println(F(" мин"));
+    } else {
+      uint16_t m = (uint16_t)clampf(atof(val) > 0 ? atof(val) : (float)feedMinutes, 1, 120);
+      feedUntil = millis() + (uint32_t)m * 60000UL;
+      Serial.print(F("[кормление] помпа остановлена на ")); Serial.print(m); Serial.println(F(" мин"));
+    }
+  }
+  /* режимы вентилятора и подогревателя: auto / on / off */
+  else if (!strcmp(key, "fanmode") || !strcmp(key, "heatmode")) {
+    uint8_t m = 0;
+    if (!strcmp(val, "on")) m = 1;
+    else if (!strcmp(val, "off")) m = 2;
+    if (!strcmp(key, "fanmode")) {
+      fanMode = m;
+      Serial.print(F("[вентилятор] режим: ")); Serial.println(m == 0 ? F("авто") : (m == 1 ? F("принудительно вкл") : F("принудительно выкл")));
+    } else {
+      heatMode = m;
+      if (m == 1) heatManualUntil = millis() + 15UL * 60UL * 1000UL;
+      Serial.print(F("[нагрев] режим: ")); Serial.println(m == 0 ? F("авто") : (m == 1 ? F("вручную 15 мин") : F("принудительно выкл")));
+    }
+    modesSave();
+  }
   else if (!strcmp(key, "fan")) {
     on = setRelayFromVal(RLY_FAN);
-    fanManual = true; fanManualState = on; relayWrite(RLY_FAN, on);
+    fanMode = on ? 1 : 2;
+    modesSave();
   }
-  else if (!strcmp(key, "fanauto")) { fanManual = false; }
+  else if (!strcmp(key, "fanauto")) { fanMode = 0; modesSave(); }
   else if (!strcmp(key, "heat")) {
     on = setRelayFromVal(RLY_HEAT);
-    if (on && !waterOk) { Serial.println(F("[cmd] нагрев отклонён: нет датчика воды")); return; }
-    if (on && waterTemp > cfg.maxWaterTemp) { Serial.println(F("[cmd] нагрев отклонён: перегрев")); return; }
-    heatManual = true; heatManualState = on;
-    heatManualUntil = millis() + 15UL * 60UL * 1000UL;
-    if (!on) { heatManual = false; relayWrite(RLY_HEAT, false); heaterOffAt = millis(); }
+    if (on) {
+      if (!waterOk) { Serial.println(F("[cmd] нагрев отклонён: нет датчика воды")); return; }
+      if (waterTemp > cfg.maxWaterTemp) { Serial.println(F("[cmd] нагрев отклонён: перегрев")); return; }
+      heatMode = 1;
+      heatManualUntil = millis() + 15UL * 60UL * 1000UL;
+    } else {
+      heatMode = 2;
+    }
+    modesSave();
   }
-  else if (!strcmp(key, "heatauto")) { heatManual = false; }
+  else if (!strcmp(key, "heatauto")) { heatMode = 0; modesSave(); }
   else if (!strcmp(key, "set"))   { cfg.setpoint = clampf(atof(val), 15.0f, cfg.maxWaterTemp - 0.5f); cfgDirty = true; }
   else if (!strcmp(key, "hyst"))  { cfg.hyst = clampf(atof(val), 0.1f, 2.0f); cfgDirty = true; }
   else if (!strcmp(key, "maxt"))  { cfg.maxWaterTemp = clampf(atof(val), 20.0f, 40.0f); if (cfg.setpoint > cfg.maxWaterTemp - 0.5f) cfg.setpoint = cfg.maxWaterTemp - 0.5f; cfgDirty = true; }
@@ -2012,37 +2125,46 @@ static void applyCmd(const char* key, const char* val) {
 
 /* Разбор расписания, пришедшего со страницы:
    по одному дню в группе «вкл,рассвет,закат,ночник,переход», группы через «;»
-   пример: 1,0800,2000,2300,40;0,0900,1900,2300,30;...  (7 групп, 0 — воскресенье) */
-static bool schedParse(const char* s) {
-  if (!s || !*s) return false;
-  DaySchedule tmp[7];
-  for (uint8_t d = 0; d < 7; d++) tmp[d] = cfg.days[d];
-
+   пример: 1,0800,2000,2300,40;0,0900,1900,2300,30;...  (7 групп, 0 — воскресенье)
+   schedParseInto только разбирает строку в массив и ничего не меняет — так его можно
+   безопасно вызывать из веб-задачи и честно ответить странице, принят ли формат. */
+static bool schedParseInto(const char* s, DaySchedule* out) {
+  if (!s || !*s || !out) return false;
   const char* p = s;
-  uint8_t day = 0, parsed = 0;
+  uint8_t day = 0;
   while (*p && day < 7) {
-    char group[40];
+    char group[48];
     size_t gi = 0;
-    while (*p && *p != ';' && gi < sizeof(group) - 1) group[gi++] = *p++;
+    while (*p && *p != ';') {                 // группа всегда вычитывается до конца
+      if (gi < sizeof(group) - 1) group[gi++] = *p;
+      p++;
+    }
     group[gi] = 0;
     if (*p == ';') p++;
+    if (gi == 0) continue;                    // пустая группа — пропускаем
 
     char* f[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
     int nf = 0;
     f[nf++] = group;
     for (char* q = group; *q && nf < 5; q++) if (*q == ',') { *q = 0; f[nf++] = q + 1; }
-    if (nf < 5) continue;
+    if (nf < 5) continue;                     // битая группа
 
-    DaySchedule& ds = tmp[day];
+    DaySchedule& ds = out[day];
     ds.enabled = atoi(f[0]) ? 1 : 0;
     long on = atol(f[1]), off = atol(f[2]), nl = atol(f[3]);
     ds.onHour = (uint8_t)clampf((float)(on / 100), 0, 23);   ds.onMin = (uint8_t)clampf((float)(on % 100), 0, 59);
     ds.offHour = (uint8_t)clampf((float)(off / 100), 0, 23); ds.offMin = (uint8_t)clampf((float)(off % 100), 0, 59);
     ds.nightHour = (uint8_t)clampf((float)(nl / 100), 0, 23);ds.nightMin = (uint8_t)clampf((float)(nl % 100), 0, 59);
     ds.rampMin = (uint8_t)clampf(atof(f[4]), 1, 180);
-    day++; parsed++;
+    day++;
   }
-  if (parsed == 0) return false;
+  return day == 7;                            // принимаем только полный набор из 7 дней
+}
+
+static bool schedParse(const char* s) {
+  DaySchedule tmp[7];
+  for (uint8_t d = 0; d < 7; d++) tmp[d] = cfg.days[d];
+  if (!schedParseInto(s, tmp)) return false;
   for (uint8_t d = 0; d < 7; d++) cfg.days[d] = tmp[d];
   schedRev++;
   cfgDirty = true;
@@ -2052,10 +2174,14 @@ static bool schedParse(const char* s) {
 static void applyCommands() {
   CmdMsg m;
   int ch = -1, pct = -1;                 // для пары lch/lval
-  /* расписание приходит длинной строкой — обрабатываем до очереди */
+  /* расписание приходит длинной строкой — обрабатываем до очереди.
+     Разбор уже сделан в веб-задаче, здесь только применяем готовый массив. */
   if (schedApplyReq) {
     schedApplyReq = false;
-    if (schedParse(schedRequest)) {
+    if (schedValid) {
+      for (uint8_t d = 0; d < 7; d++) cfg.days[d] = schedNext[d];
+      schedRev++;
+      cfgDirty = true;
       Serial.print(F("[свет] расписание сохранено: "));
       for (uint8_t d = 0; d < 7; d++) {
         const DaySchedule& ds = cfg.days[d];
@@ -2302,8 +2428,8 @@ static void cliTask() {
       break;
     case 'p': relayWrite(RLY_PUMP, !relayState[RLY_PUMP]); cfg.pumpOn = relayState[RLY_PUMP]; cfgDirty = true; break;
     case 'o': relayWrite(RLY_AIR, !relayState[RLY_AIR]); cfg.airOn = relayState[RLY_AIR]; cfgDirty = true; break;
-    case 'v': fanManual = true; fanManualState = !relayState[RLY_FAN]; relayWrite(RLY_FAN, fanManualState); break;
-    case 'g': heatManual = true; heatManualState = true; heatManualUntil = millis() + 15UL * 60UL * 1000UL; break;
+    case 'v': fanMode = (fanMode == 0) ? 1 : ((fanMode == 1) ? 2 : 0); modesSave(); break;
+    case 'g': heatMode = 1; heatManualUntil = millis() + 15UL * 60UL * 1000UL; modesSave(); break;
     case 'c': settingsSaveNow(); Serial.println(F("[nvs] сохранено")); break;
     case 'r': settingsSaveNow(); Serial.println(F("[sys] перезагрузка")); delay(150); ESP.restart(); break;
     default: cliHelp(); break;
@@ -2351,6 +2477,12 @@ void setup() {
   bool loaded = settingsLoad();
   Serial.println(loaded ? F("[nvs] настройки загружены из энергонезависимой памяти")
                         : F("[nvs] настройки по умолчанию (первый запуск)"));
+  modesLoad();                       // режимы вентилятора/нагрева и время кормления
+  Serial.print(F("[nvs] режимы: вентилятор "));
+  Serial.print(fanMode == 0 ? F("авто") : (fanMode == 1 ? F("принудительно вкл") : F("принудительно выкл")));
+  Serial.print(F(", нагрев "));
+  Serial.print(heatMode == 0 ? F("авто") : (heatMode == 1 ? F("вручную 15 мин") : F("принудительно выкл")));
+  Serial.print(F(", кормление ")); Serial.print(feedMinutes); Serial.println(F(" мин"));
 
   /* 5. Матрица гаммы и ШИМ */
   for (uint8_t i = 0; i <= 100; i++) {
@@ -2459,6 +2591,7 @@ void loop() {
   applyCommands();                // команды с сайта
   netTask();
   sensorTask();
+  controlPump();
   controlHeater();
   controlFan();
   controlLight();
