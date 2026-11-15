@@ -862,26 +862,38 @@ static void controlLight() {
   uint8_t pct[LED_CHANNELS];
   uint8_t ramp = ds.rampMin < 1 ? 1 : ds.rampMin;
   int16_t nightLen = (int16_t)nightLenFor(ds);
+  /* рассвет и закат не должны съесть весь день: каждый не длиннее половины окна */
+  if (dur > 2 && (int16_t)(ramp * 2) > dur) ramp = (uint8_t)(dur / 2);
 
   if (!ds.enabled) {
     lightPhase = LP_NIGHT;
     for (uint8_t i = 0; i < LED_CHANNELS; i++) pct[i] = 0;
-  } else if (el >= dur) {
+  } else if (el < (int16_t)ramp) {
+    /* рассвет: от выключенного к дневной яркости */
+    lightPhase = LP_DAWN;
+    float s = smoothstep01((float)el / (float)ramp);
+    for (uint8_t i = 0; i < LED_CHANNELS; i++) pct[i] = (uint8_t)((float)cfg.dayPct[i] * s + 0.5f);
+  } else if (el < dur) {
+    /* день */
+    lightPhase = LP_DAY;
+    for (uint8_t i = 0; i < LED_CHANNELS; i++) pct[i] = cfg.dayPct[i];
+  } else if (el < (int16_t)(dur + ramp)) {
+    /* закат: плавно от ДНЕВНОЙ яркости к НОЧНОЙ уставке (а если ночника нет — к нулю).
+       Раньше здесь было «день × коэффициент», из-за чего свет уходил в 0
+       и потом прыгал на ночник. */
+    lightPhase = LP_DUSK;
+    float s = smoothstep01((float)((int16_t)(dur + ramp) - el) / (float)ramp);   /* 1 → 0 */
+    for (uint8_t i = 0; i < LED_CHANNELS; i++) {
+      uint8_t tgt = (nightLen > (int16_t)ramp) ? cfg.nightPct[i] : 0;
+      float v = (float)tgt + ((float)cfg.dayPct[i] - (float)tgt) * s;
+      pct[i] = (uint8_t)(v + 0.5f);
+    }
+  } else {
+    /* ночник до заданного времени, потом темно */
     int16_t afterOff = (int16_t)(el - dur);
     lightPhase = LP_NIGHT;
     for (uint8_t i = 0; i < LED_CHANNELS; i++)
       pct[i] = (nightLen > 0 && afterOff < nightLen) ? cfg.nightPct[i] : 0;
-  } else if (el < ramp) {
-    lightPhase = LP_DAWN;
-    float s = smoothstep01((float)el / (float)ramp);
-    for (uint8_t i = 0; i < LED_CHANNELS; i++) pct[i] = (uint8_t)((float)cfg.dayPct[i] * s + 0.5f);
-  } else if (el >= (int16_t)(dur - ramp)) {
-    lightPhase = LP_DUSK;
-    float s = smoothstep01((float)(dur - el) / (float)ramp);
-    for (uint8_t i = 0; i < LED_CHANNELS; i++) pct[i] = (uint8_t)((float)cfg.dayPct[i] * s + 0.5f);
-  } else {
-    lightPhase = LP_DAY;
-    for (uint8_t i = 0; i < LED_CHANNELS; i++) pct[i] = cfg.dayPct[i];
   }
   for (uint8_t i = 0; i < LED_CHANNELS; i++) ledWrite(i, pct[i]);
 }
