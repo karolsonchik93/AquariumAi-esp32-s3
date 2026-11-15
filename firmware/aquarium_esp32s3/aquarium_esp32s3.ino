@@ -688,6 +688,10 @@ static void ledWrite(uint8_t ch, uint8_t pct) {
   if (pct > 100) pct = 100;
   ledPct[ch] = pct;
   int32_t duty = gammaLut[pct];
+#if LED_INVERT
+  /* вход инверсный: 0 % яркости = максимальная скважность, 100 % = нулевая */
+  duty = gammaLut[100] - duty;
+#endif
   if (duty == ledDuty[ch]) return;
   ledDuty[ch] = duty;
   pwmWrite(ch, LED_PINS[ch], (uint32_t)duty);
