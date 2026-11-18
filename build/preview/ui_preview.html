@@ -129,7 +129,7 @@ body.heat-on .heatwaves{opacity:1}
 .ring-bg{fill:none;stroke:rgba(255,255,255,.07);stroke-width:3}
 .ring-fg{fill:none;stroke:var(--accent);stroke-width:3.5;stroke-linecap:round;
   stroke-dasharray:596.9;stroke-dashoffset:596.9;transition:stroke-dashoffset .8s cubic-bezier(.3,0,.2,1),stroke .8s;
-  filter:drop-shadow(0 0 10px rgba(var(--accent-rgb),.6))}
+  box-shadow:0 0 0 3px rgba(var(--accent-rgb),.12)}
 .ring-band{fill:none;stroke:rgba(34,211,127,.55);stroke-width:9;stroke-linecap:butt}
 body.heating .ring-fg{animation:ringPulse 1.8s ease-in-out infinite}
 @keyframes ringPulse{0%,100%{opacity:1}50%{opacity:.45}}
@@ -205,7 +205,7 @@ body.heating .ring-fg{animation:ringPulse 1.8s ease-in-out infinite}
 .gBand{fill:none;stroke:rgba(34,211,127,.55);stroke-width:9;stroke-linecap:butt;
   transition:stroke-dasharray .7s ease,stroke-dashoffset .7s ease}
 .gVal{fill:none;stroke:url(#gArc);stroke-width:9;stroke-linecap:round;stroke-dasharray:0 502.7;
-  transition:stroke-dasharray .9s cubic-bezier(.3,0,.2,1);filter:drop-shadow(0 0 7px rgba(34,211,238,.8))}
+  transition:stroke-dasharray .9s cubic-bezier(.3,0,.2,1)}
 .gDot{fill:#eafcff;transition:cx .9s cubic-bezier(.3,0,.2,1),cy .9s cubic-bezier(.3,0,.2,1)}
 .gDotGlow{fill:rgba(34,211,238,.30);transform-box:fill-box;transform-origin:center;
   animation:dotPulse 2.6s ease-in-out infinite;transition:cx .9s cubic-bezier(.3,0,.2,1),cy .9s cubic-bezier(.3,0,.2,1)}
@@ -235,8 +235,8 @@ body.heating .ring-fg{animation:ringPulse 1.8s ease-in-out infinite}
   transition:width .85s cubic-bezier(.3,0,.2,1)}
 .hsub{grid-area:sub;font-size:10.5px;color:var(--mute);margin-top:6px;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis}
-.hrow.hot{border-color:rgba(255,120,60,.42);background:rgba(255,120,60,.07)}
-.hrow.hot .hbar>i{background:linear-gradient(90deg,#ffab5e,#ff3d00);box-shadow:0 0 12px rgba(255,90,40,.75)}
+.hrow.hot{border-color:rgba(255,120,60,.34);background:rgba(255,120,60,.055)}
+.hrow.hot .hbar>i{background:linear-gradient(90deg,#ffab5e,#ff3d00)}
 .spark{margin-top:2px;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:8px 10px 2px}
 .sparkTop{display:flex;justify-content:space-between;font-size:10px;color:var(--dim);margin-bottom:3px}
 .spark canvas{width:100%;display:block;border-radius:6px}
@@ -267,8 +267,8 @@ body.heating .ring-fg{animation:ringPulse 1.8s ease-in-out infinite}
 .pill.hot{background:rgba(255,120,60,.18);color:#ffa878;border-color:rgba(255,120,60,.45);
   animation:none;box-shadow:0 0 14px rgba(255,120,60,.34)}
 .pill.err{background:rgba(255,77,94,.18);color:#ff9099;border-color:rgba(255,77,94,.45)}
-@keyframes pillGlow{0%,100%{box-shadow:0 0 0 rgba(34,211,127,0)}50%{box-shadow:0 0 16px rgba(34,211,127,.45)}}
-@keyframes hotGlow{0%,100%{box-shadow:0 0 0 rgba(255,120,60,0)}50%{box-shadow:0 0 18px rgba(255,120,60,.5)}}
+
+
 .switch{position:relative;width:70px;height:38px;border-radius:999px;border:1px solid var(--line);
   background:rgba(255,255,255,.06);cursor:pointer;transition:.3s;flex:0 0 auto}
 .switch::after{content:'';position:absolute;top:3px;left:3px;width:30px;height:30px;border-radius:50%;
@@ -395,6 +395,266 @@ footer{color:var(--mute);font-size:12px;text-align:center;margin-top:22px;line-h
 body.night .aurora{opacity:.32}
 body.night .card{background:rgba(255,255,255,.03)}
 @media(max-width:560px){.readout .big{font-size:48px}.ringwrap{width:180px;height:180px}.tank{height:250px}}
+/* ══════════════════════════════════════════════════════════════════════════
+   ТЕМА «HUD» — тёмный хай-тек. Слой переопределений, разметка не меняется.
+   Никаких backdrop-filter, filter: blur/drop-shadow и анимаций фильтров:
+   только статичные градиенты, rgba-границы, opacity и transform.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  /* поверхности: непрозрачные, «приборная панель» */
+  --bg:#04070b;
+  --panel:#0a1017;
+  --panel2:#0e1721;
+  --panel3:#121d29;
+  --line:#1b2a3a;
+  --line-soft:rgba(120,170,220,.10);
+  --fg:#e8f2ff;
+  --dim:#8397ac;
+  --mute:#5f7891;
+  --accent:#2ee6ff;--accent-rgb:46,230,255;
+  --ok:#2ee08a;--warn:#ffb534;--danger:#ff5470;
+  --lemon:#e6fb4a;
+  --radius:14px;
+  --mono:ui-monospace,SFMono-Regular,"JetBrains Mono",Consolas,"Liberation Mono",monospace;
+}
+
+/* ── фон: статичные слои, рисуются один раз ─────────────────────────────── */
+body{
+  background:
+    radial-gradient(1100px 520px at 50% -12%,#0a2331 0%,rgba(10,35,49,0) 62%),
+    radial-gradient(900px 500px at 92% 8%,rgba(90,70,220,.10),rgba(90,70,220,0) 60%),
+    linear-gradient(180deg,#04070c 0%,#04070b 52%,#030509 100%);
+  font:15px/1.55 ui-sans-serif,system-ui,"Segoe UI",Roboto,Arial,sans-serif;
+  letter-spacing:.004em;
+}
+/* техническая сетка: один статичный слой, не перерисовывается */
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    repeating-linear-gradient(90deg,rgba(110,180,220,.05) 0 1px,transparent 1px 72px),
+    repeating-linear-gradient(0deg,rgba(110,180,220,.05) 0 1px,transparent 1px 72px);
+  opacity:.55;
+}
+/* аврора больше не анимируется — просто мягкое свечение сверху */
+.aurora{animation:none!important;opacity:.42}
+body.night .aurora{opacity:.3}
+
+/* ── шапка ─────────────────────────────────────────────────────────────── */
+.brand{font-family:var(--mono);letter-spacing:.22em;font-size:11.5px;color:#a9c3d8}
+.brand .dot{width:8px;height:8px;border-radius:2px;box-shadow:none}
+.hud{gap:10px}
+.chip{
+  background:rgba(10,17,24,.9);border:1px solid var(--line);border-radius:7px;
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;color:#93a9be;
+}
+.clock{color:#dff3ff}
+
+/* ── карточки: плоские панели с кромкой света ──────────────────────────── */
+.card{
+  background:linear-gradient(180deg,var(--panel) 0%,#070d13 100%);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:0 18px 40px -30px #000;
+  position:relative;
+  overflow:hidden;
+}
+.card::before{                      /* 1px «кромка света» сверху */
+  content:'';position:absolute;left:16px;right:16px;top:0;height:1px;pointer-events:none;
+  background:linear-gradient(90deg,rgba(var(--accent-rgb),0),rgba(var(--accent-rgb),.55),rgba(var(--accent-rgb),0));
+}
+.card.wide::after,details.card::after{       /* уголки HUD — только на крупных секциях */
+  content:'';position:absolute;inset:9px;pointer-events:none;opacity:.28;
+  background:
+    linear-gradient(var(--accent),var(--accent)) left top/12px 1px no-repeat,
+    linear-gradient(var(--accent),var(--accent)) left top/1px 12px no-repeat,
+    linear-gradient(var(--accent),var(--accent)) right bottom/12px 1px no-repeat,
+    linear-gradient(var(--accent),var(--accent)) right bottom/1px 12px no-repeat;
+}
+.card:hover{border-color:rgba(var(--accent-rgb),.34)}
+.card h2{
+  font-family:var(--mono);font-size:11px;font-weight:700;
+  letter-spacing:.2em;text-transform:uppercase;color:#a6bccf;
+  display:flex;align-items:center;gap:8px;
+}
+.card h2::before{
+  content:'';width:3px;height:12px;border-radius:1px;background:var(--accent);flex:0 0 auto;
+}
+.note{color:var(--dim);font-size:12px;letter-spacing:.01em}
+.head{margin-bottom:12px}
+
+/* ── пилюли-статусы ───────────────────────────────────────────────────── */
+.pill{
+  font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.16em;
+  text-transform:uppercase;padding:5px 9px;border-radius:6px;
+  background:#0b131b;border:1px solid var(--line);color:var(--dim);box-shadow:none;
+}
+.pill.on{background:rgba(var(--accent-rgb),.14);border-color:rgba(var(--accent-rgb),.65);color:#bdf4ff}
+.pill.hot{background:rgba(255,120,60,.14);border-color:rgba(255,120,60,.6);color:#ffb89a}
+.pill.err{background:rgba(255,84,112,.14);border-color:rgba(255,84,112,.6);color:#ff9dab}
+.hbadge{
+  font-family:var(--mono);font-size:10px;letter-spacing:.14em;border-radius:6px;
+  background:rgba(46,224,138,.12);border:1px solid rgba(46,224,138,.42);color:#7cf0b4;
+}
+.hbadge.err{background:rgba(255,84,112,.14);border-color:rgba(255,84,112,.5);color:#ff9dab}
+
+/* ── кнопки, режимы, кормление ─────────────────────────────────────────── */
+.btn{
+  background:#0c151e;border:1px solid var(--line);border-radius:8px;color:#cbe0f2;
+  font-size:12.5px;letter-spacing:.03em;padding:9px 13px;box-shadow:none;
+  transition:background .18s,border-color .18s,color .18s;
+}
+.btn:hover{border-color:rgba(var(--accent-rgb),.55);color:#eafaff;background:#101c27}
+.btn.primary{background:linear-gradient(180deg,#0f3846,#0b2731);border-color:rgba(var(--accent-rgb),.75);color:#e8faff}
+.btn.primary:hover{background:linear-gradient(180deg,#134654,#0d303c)}
+.btn.ghost{background:transparent;color:var(--dim)}
+.modes{background:#080f16;border:1px solid var(--line);border-radius:9px;padding:3px;gap:3px}
+.modes button{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  padding:7px 11px;border-radius:6px;color:var(--dim)}
+.modes button.on{background:var(--lemon);color:#101a05;border-radius:6px;box-shadow:none;font-weight:700}
+.feedBtn{
+  border-radius:9px;border:1px solid rgba(230,251,74,.45);
+  background:linear-gradient(180deg,rgba(230,251,74,.10),rgba(230,251,74,.03));
+  color:var(--lemon);font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;padding:13px 12px;
+}
+.feedBtn:hover{background:rgba(230,251,74,.18);transform:none}
+.feedBtn.active{background:var(--lemon);color:#101a05;box-shadow:none}
+.feedCard{background:#0a1118;border:1px solid var(--line);border-radius:10px}
+
+/* ── переключатели ─────────────────────────────────────────────────────── */
+.switch{
+  width:50px;height:26px;border-radius:7px;background:#080f16;
+  border:1px solid var(--line);position:relative;cursor:pointer;flex:0 0 auto;
+  transition:background .18s,border-color .18s;
+}
+.switch::after{
+  content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:4px;
+  background:#3d5169;transition:transform .18s,background .18s;
+}
+.switch.on{background:rgba(var(--accent-rgb),.16);border-color:rgba(var(--accent-rgb),.7)}
+.switch.on::after{transform:translateX(24px);background:var(--accent)}
+.switch.hot{background:rgba(255,120,60,.16);border-color:rgba(255,120,60,.7)}
+.switch.hot::after{transform:translateX(24px);background:#ff8a52}
+
+/* ── поля ввода, ползунки ──────────────────────────────────────────────── */
+input[type=number],input[type=text],input[type=time],input[type=password]{
+  background:#070d13;border:1px solid var(--line);border-radius:7px;color:#e3f2ff;
+  font-family:var(--mono);font-size:13px;padding:8px 10px;
+}
+input[type=number]:focus,input[type=text]:focus,input[type=time]:focus,input[type=password]:focus{
+  outline:none;border-color:rgba(var(--accent-rgb),.75);background:#0a1620;
+}
+label.f{color:var(--dim);font-size:11.5px;letter-spacing:.02em}
+input[type=range]{-webkit-appearance:none;appearance:none;height:22px;background:transparent}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:#16232f}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:14px;margin-top:-5px;border-radius:3px;
+  background:var(--accent);border:1px solid #0a3a45;
+}
+input[type=checkbox]{accent-color:var(--accent)}
+
+/* ── полоски прогресса ─────────────────────────────────────────────────── */
+.bar{height:5px;border-radius:2px;overflow:hidden;background:#16232f}
+.bar i{background:linear-gradient(90deg,rgba(var(--accent-rgb),.45),var(--accent))}
+.hbar{height:5px;border-radius:2px;background:#16232f}
+.hbar i{background:linear-gradient(90deg,rgba(var(--accent-rgb),.4),var(--accent))}
+
+/* ── герой, аквариум ───────────────────────────────────────────────────── */
+.hero .scene,.hero{min-width:0}
+.tank{
+  border:1px solid rgba(var(--accent-rgb),.26);border-radius:16px;box-shadow:none;
+  background:linear-gradient(180deg,#061420 0%,#04101b 58%,#020a12 100%);
+}
+.tank::after{                       /* уголки поверх сцены */
+  content:'';position:absolute;inset:8px;pointer-events:none;opacity:.5;z-index:4;
+  background:
+    linear-gradient(var(--accent),var(--accent)) left top/16px 1px no-repeat,
+    linear-gradient(var(--accent),var(--accent)) left top/1px 16px no-repeat,
+    linear-gradient(var(--accent),var(--accent)) right top/16px 1px no-repeat,
+    linear-gradient(var(--accent),var(--accent)) right top/1px 16px no-repeat,
+    linear-gradient(var(--accent),var(--accent)) left bottom/16px 1px no-repeat,
+    linear-gradient(var(--accent),var(--accent)) left bottom/1px 16px no-repeat,
+    linear-gradient(var(--accent),var(--accent)) right bottom/16px 1px no-repeat,
+    linear-gradient(var(--accent),var(--accent)) right bottom/1px 16px no-repeat;
+}
+.lamp{background:linear-gradient(180deg,rgba(var(--accent-rgb),.5),rgba(var(--accent-rgb),0));height:6px}
+.hrow{background:#0a1119;border:1px solid var(--line-soft);border-radius:9px}
+.hrow.hot{border-color:rgba(255,120,60,.38);background:rgba(255,120,60,.06)}
+.hk{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--mute)}
+.hv{font-family:var(--mono);font-size:13px;color:#dff1ff;font-variant-numeric:tabular-nums}
+.hsub{font-family:var(--mono);font-size:10px;letter-spacing:.02em;color:#7d93a8}
+.hico{opacity:.75}
+.spark{border:1px solid var(--line-soft);border-radius:9px;background:#070d13}
+.sparkTop{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+
+/* ── стрелка-датчик и центральное число ────────────────────────────────── */
+.gRead .big,.gaugeText,.readout .big{
+  font-family:var(--mono);letter-spacing:-.02em;color:#f2fbff;
+}
+.gTrack{stroke:#182634}
+.gVal{filter:none}                  /* убираем drop-shadow у дуги — было дорого */
+.gBand{stroke:rgba(46,224,138,.55)}
+
+/* ── раскрывающиеся блоки ──────────────────────────────────────────────── */
+details.acc,details.card{
+  background:linear-gradient(180deg,var(--panel) 0%,#070d13 100%);
+  border:1px solid var(--line);border-radius:var(--radius);
+}
+details summary{
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:#a6bccf;
+}
+details summary::marker{color:var(--accent)}
+details[open] summary{border-bottom:1px solid var(--line-soft)}
+.srow{border-top:1px solid var(--line-soft);background:transparent}
+.srow.off{opacity:.42}
+.srow .wd{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#9fb5c9}
+
+/* ── таблицы ───────────────────────────────────────────────────────────── */
+table{border-collapse:collapse;width:100%}
+th{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--mute);font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line-soft)}
+td{font-size:12.5px;color:#c6d8e8;padding:6px 8px;border-bottom:1px solid var(--line-soft);
+  font-variant-numeric:tabular-nums}
+
+/* ── уведомления, оверлей связи ────────────────────────────────────────── */
+.toast{
+  background:#0a1119;border:1px solid var(--line);border-left:2px solid var(--accent);
+  border-radius:8px;color:#cfe4f5;font-size:12.5px;box-shadow:0 16px 34px -24px #000;
+}
+.toast.ok{border-left-color:var(--ok)}
+.toast.err{border-left-color:var(--danger)}
+.offline{background:rgba(3,6,10,.96)}
+.offline .box{background:#0a1119;border:1px solid var(--line);border-radius:14px;padding:26px}
+.pulse{border-radius:8px;border-width:1px}
+footer{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--mute)}
+
+/* ── прокрутка ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:#060b10}
+::-webkit-scrollbar-thumb{background:#1c2b3a;border-radius:5px}
+::-webkit-scrollbar-thumb:hover{background:#26384a}
+
+/* ── узкие экраны: не даём шапке и строке состояния вылезать за край ───── */
+@media(max-width:620px){
+  body{padding:12px 10px 40px}
+  header{gap:8px}
+  .hud{width:100%;justify-content:flex-start;gap:6px}
+  .chip{font-size:10.5px;padding:4px 8px}
+  .head{gap:8px}
+  .note{font-size:11.5px}
+  #phaseNote{white-space:normal;overflow-wrap:anywhere;flex:1 1 100%}
+  .card{padding:13px}
+  .card h2{font-size:10px;letter-spacing:.14em}
+  .tank::after,.card.wide::after{opacity:.2}
+  .modes button{padding:6px 9px;font-size:10px}
+  .feedBtn{font-size:11px;padding:11px 10px}
+}/* ── мелкая типографика значений ───────────────────────────────────────── */
+.stat b,.val,.temp,.num{font-variant-numeric:tabular-nums}
+@media(max-width:560px){
+  .card{padding:14px;border-radius:12px}
+  .card h2{font-size:10px;letter-spacing:.16em}
+  .tank::after{opacity:.35}
+}
+
 </style>
 </head>
 <body data-phase="day">
