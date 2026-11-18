@@ -25,6 +25,7 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
+#include <LittleFS.h>
 #include <Update.h>
 #include <ArduinoOTA.h>
 #include <HTTPClient.h>
@@ -324,7 +325,10 @@ static void   modesSave();
 
 static void   historyInit();
 static void   historyPush();
-static uint16_t historySnapshot(HistPoint* out, uint16_t maxN, uint32_t windowSec);
+static uint16_t historySnapshot(HistPoint* out, uint32_t* outEpoch, uint16_t maxN, uint32_t windowSec);
+static bool   historyFsMount();
+static void   historyLoadFlash();
+static void   historyCompact();
 
 static void   netBegin();
 static void   netTask();
@@ -898,24 +902,131 @@ static void controlLight() {
   for (uint8_t i = 0; i < LED_CHANNELS; i++) ledWrite(i, pct[i]);
 }
 
-/* ====================== ИСТОРИЯ (PSRAM) ====================== */
+/* ====================== ИСТОРИЯ (PSRAM + флеш) ====================== */
+/* Запись для флеша: время + обе температуры + флаги = 12 байт.
+   24 часа при шаге 15 с — это 5760 записей ≈ 69 КБ, раздел LittleFS ~190 КБ. */
+struct HistRec {
+  uint32_t epoch;
+  int16_t  t100;
+  int16_t  a100;
+  uint8_t  flags;
+  uint8_t  pad;
+};
+static uint32_t* histEpoch = nullptr;         // время каждой точки в кольце
+static bool      histFsReady = false;
+static File      histFile;
+
 static void historyInit() {
   size_t bytes = sizeof(HistPoint) * HISTORY_MAX_POINTS;
   if (psramFound()) {
     hist = (HistPoint*)ps_malloc(bytes);
+    histEpoch = (uint32_t*)ps_malloc(sizeof(uint32_t) * HISTORY_MAX_POINTS);
     Serial.print(F("[psram] найдена, размер "));
     Serial.print((unsigned)(ESP.getPsramSize() / 1024));
     Serial.println(F(" КБ"));
   }
   if (!hist) hist = (HistPoint*)malloc(bytes);      // запасной вариант — обычная память
+  if (!histEpoch) histEpoch = (uint32_t*)malloc(sizeof(uint32_t) * HISTORY_MAX_POINTS);
   if (hist) {
     memset(hist, 0, bytes);
+    if (histEpoch) memset(histEpoch, 0, sizeof(uint32_t) * HISTORY_MAX_POINTS);
     Serial.print(F("[hist] буфер истории "));
     Serial.print((unsigned)(bytes / 1024));
     Serial.print(F(" КБ на "));
     Serial.print((unsigned)HISTORY_MAX_POINTS);
     Serial.println(F(" точек"));
   }
+}
+
+static bool historyFsMount() {
+  histFsReady = LittleFS.begin(true);
+  if (!histFsReady) {
+    Serial.println(F("[hist] раздел LittleFS не смонтирован — история только в памяти"));
+    return false;
+  }
+  Serial.print(F("[hist] флеш-история: раздел "));
+  Serial.print((unsigned)(LittleFS.totalBytes() / 1024));
+  Serial.print(F(" КБ, занято "));
+  Serial.print((unsigned)(LittleFS.usedBytes() / 1024));
+  Serial.println(F(" КБ"));
+  return true;
+}
+
+/* дописываем точку в файл — по 12 байт раз в HISTORY_PERIOD_S, флеш это переживёт */
+static void historyFlashAppend(uint32_t epoch, int16_t t100, int16_t a100, uint8_t flags) {
+  if (!histFsReady) return;
+  if (!histFile) {
+    histFile = LittleFS.open(HIST_FILE, "a");
+    if (!histFile) { histFsReady = false; return; }
+  }
+  if (histFile.size() > HIST_MAX_BYTES) {      // пора подрезать
+    histFile.close();
+    return;                                    // уплотнение сделаем в historyCompact()
+  }
+  HistRec r;
+  r.epoch = epoch; r.t100 = t100; r.a100 = a100; r.flags = flags; r.pad = 0;
+  histFile.write((const uint8_t*)&r, sizeof(r));
+  histFile.flush();
+}
+
+/* читаем файл и наполняем кольцо последними записями (только за последние сутки) */
+static void historyLoadFlash() {
+  if (!histFsReady || !hist || !histEpoch) return;
+  File f = LittleFS.open(HIST_FILE, "r");
+  if (!f) { Serial.println(F("[hist] новых записей во флеше нет")); return; }
+  uint32_t nowEpoch = (uint32_t)time(nullptr);
+  bool timeOk = nowEpoch > 1600000000UL;       // время синхронизировано
+  uint32_t limit = (uint32_t)HISTORY_HOURS * 3600UL;
+
+  size_t total = f.size() / sizeof(HistRec);
+  HistRec r;
+  histCount = 0; histNext = 0;
+  size_t read = 0;
+  while (f.read((uint8_t*)&r, sizeof(r)) == sizeof(r)) {
+    read++;
+    if (r.epoch == 0) continue;                              // мусор
+    if (timeOk && (nowEpoch - r.epoch) > limit) continue;    // старше суток
+    hist[histNext].t100 = r.t100;
+    hist[histNext].a100 = r.a100;
+    hist[histNext].flags = r.flags;
+    histEpoch[histNext] = r.epoch;
+    histNext = (uint16_t)((histNext + 1) % HISTORY_MAX_POINTS);
+    if (histCount < HISTORY_MAX_POINTS) histCount++;
+  }
+  f.close();
+  Serial.print(F("[hist] из флеша восстановлено точек: "));
+  Serial.print((unsigned)histCount);
+  Serial.print(F(" (прочитано записей "));
+  Serial.print((unsigned)read);
+  Serial.print(F(" из "));
+  Serial.print((unsigned)total);
+  Serial.println(F(")"));
+}
+
+/* оставляем во флеше только последние сутки */
+static void historyCompact() {
+  if (!histFsReady || !hist || !histEpoch || histCount == 0) return;
+  if (histFile) histFile.close();
+  File f = LittleFS.open(HIST_FILE, "r");
+  if (f && f.size() <= HIST_MAX_BYTES / 2) { f.close(); return; }
+  if (f) f.close();
+
+  File w = LittleFS.open(HIST_TMP, "w");
+  if (!w) return;
+  uint16_t start = (uint16_t)((histNext + HISTORY_MAX_POINTS - histCount) % HISTORY_MAX_POINTS);
+  for (uint16_t k = 0; k < histCount; k++) {
+    uint16_t i = (uint16_t)((start + k) % HISTORY_MAX_POINTS);
+    if (histEpoch[i] == 0) continue;
+    HistRec r;
+    r.epoch = histEpoch[i]; r.t100 = hist[i].t100; r.a100 = hist[i].a100;
+    r.flags = hist[i].flags; r.pad = 0;
+    w.write((const uint8_t*)&r, sizeof(r));
+  }
+  w.close();
+  LittleFS.remove(HIST_FILE);
+  LittleFS.rename(HIST_TMP, HIST_FILE);
+  Serial.print(F("[hist] флеш уплотнён, точек: "));
+  Serial.println((unsigned)histCount);
 }
 
 static void historyPush() {
@@ -930,13 +1041,21 @@ static void historyPush() {
   if (relayState[RLY_AIR])  p.flags |= 0x08;
   for (uint8_t i = 0; i < LED_CHANNELS; i++) if (ledPct[i] > 2) { p.flags |= 0x10; break; }
 
+  uint32_t nowEpoch = (uint32_t)time(nullptr);
+  if (histEpoch) histEpoch[histNext] = (nowEpoch > 1600000000UL) ? nowEpoch : 0;
+  if (histEpoch && histEpoch[histNext]) {
+    historyFlashAppend(histEpoch[histNext], p.t100, p.a100, p.flags);
+  } else if (histFile) {
+    histFile.close();                      // время неизвестно — в файл не пишем
+  }
+
   histNext = (uint16_t)((histNext + 1) % HISTORY_MAX_POINTS);
   if (histCount < HISTORY_MAX_POINTS) histCount++;
   newHistPoint = true;
 }
 
 /* отдаём не больше maxN точек, прореживая окно */
-static uint16_t historySnapshot(HistPoint* out, uint16_t maxN, uint32_t windowSec) {
+static uint16_t historySnapshot(HistPoint* out, uint32_t* outEpoch, uint16_t maxN, uint32_t windowSec) {
   if (!hist || histCount == 0) return 0;
   uint32_t wantPoints = windowSec / HISTORY_PERIOD_S;
   if (wantPoints == 0) wantPoints = 1;
@@ -946,7 +1065,10 @@ static uint16_t historySnapshot(HistPoint* out, uint16_t maxN, uint32_t windowSe
   uint16_t n = 0;
   uint16_t start = (uint16_t)((histNext + HISTORY_MAX_POINTS - (uint16_t)wantPoints) % HISTORY_MAX_POINTS);
   for (uint32_t k = 0; k < wantPoints && n < maxN; k += step) {
-    out[n++] = hist[(start + k) % HISTORY_MAX_POINTS];
+    uint16_t idx = (uint16_t)((start + k) % HISTORY_MAX_POINTS);
+    out[n] = hist[idx];
+    if (outEpoch) outEpoch[n] = histEpoch ? histEpoch[idx] : 0;
+    n++;
   }
   return n;
 }
@@ -1504,14 +1626,28 @@ static void httpSendWidgetApk(WiFiClient& c) {
 
 static void httpSendHistory(WiFiClient& c, uint32_t windowSec) {
   static HistPoint pts[400];
-  uint16_t n = historySnapshot(pts, 400, windowSec);
+  static uint32_t ptsEpoch[400];
+  uint16_t n = historySnapshot(pts, ptsEpoch, 400, windowSec);
+  uint32_t nowEpoch = (uint32_t)time(nullptr);
+  bool timeOk = nowEpoch > 1600000000UL;
+  uint32_t stepSec = (uint32_t)(n > 1 ? windowSec / n : HISTORY_PERIOD_S);
   httpSendHead(c, "200 OK", "application/json; charset=utf-8", -1);
   char b[24];
   c.print(F("{\"n\":"));
   c.print((unsigned)n);
   c.print(F(",\"step\":"));
-  c.print((unsigned)(n > 1 ? windowSec / n : HISTORY_PERIOD_S));
-  c.print(F(",\"t\":["));
+  c.print((unsigned)stepSec);
+  /* сколько секунд назад снята каждая точка: страница строит ось по реальному времени
+     и корректно показывает разрывы после перезагрузки */
+  c.print(F(",\"ago\":["));
+  for (uint16_t i = 0; i < n; i++) {
+    uint32_t ago = 0;
+    if (timeOk && ptsEpoch[i] > 0 && nowEpoch > ptsEpoch[i]) ago = nowEpoch - ptsEpoch[i];
+    else ago = (uint32_t)(n - 1 - i) * stepSec;
+    snprintf(b, sizeof(b), "%s%lu", i ? "," : "", (unsigned long)ago);
+    c.print(b);
+  }
+  c.print(F("],\"t\":["));
   for (uint16_t i = 0; i < n; i++) { snprintf(b, sizeof(b), "%s%d", i ? "," : "", pts[i].t100); c.print(b); }
   c.print(F("],\"a\":["));
   for (uint16_t i = 0; i < n; i++) { snprintf(b, sizeof(b), "%s%d", i ? "," : "", pts[i].a100); c.print(b); }
@@ -1918,7 +2054,9 @@ static void sseBegin(WiFiClient& c) {
 
 static void ssePump(WiFiClient& c) {
   uint32_t now = millis();
-  if (now - sseLast < 1000) return;
+  /* 3 секунды: страница меньше перерисовывается, комп меньше грузится.
+     Значение задаётся в config.h (STATE_PUSH_MS). */
+  if (now - sseLast < STATE_PUSH_MS) return;
   sseLast = now;
   int n = buildStateJson(sseJson, sizeof(sseJson));
   c.print(F("data: "));
@@ -2540,6 +2678,7 @@ void setup() {
 
   /* 6. История в PSRAM */
   historyInit();
+  if (historyFsMount()) { historyLoadFlash(); historyCompact(); }
 
   /* 7. Датчики */
   ds.begin();
